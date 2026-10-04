@@ -18,7 +18,13 @@ def main():
     response = requests.post(domain + "/api/v1/auth/oidc-auth/login",
                              json={"identityId": os.environ["INFISICAL_IDENTITY_ID"], "jwt": jwt}, timeout=30)
     if not response.ok:
-        raise SystemExit(f"Infisical OIDC exchange failed ({response.status_code})")
+        try:
+            detail = response.json()
+            message = str(detail.get("message", detail.get("error", "unspecified")))
+        except ValueError:
+            message = "non-JSON response; content-type=" + response.headers.get("Content-Type", "unknown")
+        message = message.replace(jwt, "[redacted]").replace(os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"], "[redacted]")
+        raise SystemExit(f"Infisical OIDC exchange failed ({response.status_code}): {message[:300]}")
     token = response.json()["accessToken"]
     print("::add-mask::" + token)
     response = requests.get(domain + "/api/v3/secrets/raw", headers={"Authorization": "Bearer " + token},
