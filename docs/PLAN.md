@@ -170,3 +170,5 @@ SQLite `files` 初稿：id、内部batch、source、tree、name、size、modifie
 2026-10-04 云链路验证完成：dev/prod云函数health200、认证列表200、无凭据401；生产预留实例target/current均0，dev并发上限1、prod上限2。开发环境实际9MiB两分片上传，上传第一片后重取session确认续传，第二手机冲突409，合并后CRC匹配，重复complete幂等，共享列表可见，签名下载SHA匹配，匿名GET403；错误CRC用例拒绝且未uploaded；仅本次测试对象和记录已清理。冷启动依赖冲突修复：显式打包pyOpenSSL26.4和service-identity24.2，防止使用FC内置旧版本；crcmod打包纯Python文件，避免Mac本机构建扩展混入LinuxZIP。
 
 Android增加开发applicationIdSuffix `.dev`、开发标签，生产app ID不变；构建改用 `deploy/build_android.py`，所有Gradle中转及临时keystore在系统临时目录，finally清理，仅请求的APK持久输出。当前正在本机构建production 0.1.0/versionCode1000并执行lint、单元测试和签名验证。下一步源码敏感信息扫描、首次commit/push、GitHubCI/tag发布，再从privateOSS下载发行APK并通过飞书交付。
+
+2026-10-04 过渡资源清理完成：已删除dashcam-transfer-api函数及HTTP触发器；dashcam-transfer-media仅有两份旧函数ZIP、无视频、无分片上传，已清空并删除Bucket；旧dashcam-transfer-runtime / dashcam-transfer-release RAM用户、全部AccessKey及对应旧自定义策略已删除。复查仅保留dev/prod各runtime/release共四个项目RAM用户。本地生产APK签名/lint/单元测试通过；源码已公开推送。GitHub首次CI因SDK动作默认安装已下架tools包失败，已改为platform-tools并推送修复，等待验证；正式标签发布和飞书交付尚未完成。
