@@ -42,11 +42,11 @@
 | infra 记录 | 已提交推送 | inventory、secrets、数据库/TLS期望配置与当日changelog；仓库检查通过，提交9ae1bb6 |
 | OSS Bucket / RAM | 两环境完成 | 北京dev/prod两个private Bucket、四个独立最小权限RAM用户；旧media Bucket、旧函数、旧用户/Key/策略已删除 |
 | 云函数 | 两环境部署与鉴权通过 | dev/prod health 200、有效凭据列表200、无凭据401；无预留实例；源码包来自对应私有OSS |
-| 服务端代码 | 本地测试通过 | uv.lock已生成；6项故障测试通过，独立临时真实MongoDB也通过；开发环境真实私有OSS分片续传、冲突、最终CRC、错误CRC拒绝、签名下载SHA一致和匿名403均通过；测试对象和记录已清理 |
-| Android 代码 | 调试构建/静态检查通过 | Activity、Service、Engine、Worker、InstallProvider与Wi-Fi监听已实现；assembleDebug、lintDebug、2项CRC/SHA单元测试通过；尚无真机运行证据 |
+| 服务端代码 | 本地测试通过 | uv.lock已生成；8项故障及目录隔离测试通过，独立临时真实MongoDB也通过；开发环境真实私有OSS分片续传、冲突、最终CRC、错误CRC拒绝、签名下载SHA一致和匿名403均通过；测试对象和记录已清理 |
+| Android 代码 | 0.2.0模拟器验证通过 | 三步引导、状态首页、四Tab、挂载提示、完整进度与回收站；lint、4项单元及4项Android35设备测试通过；真机OTG/锁屏仍待验收 |
 | iOS | 仅占位 | `ios/README.md` |
-| GitHub Actions / 发布工具 | 完成并实际运行通过 | CI37203289235通过；v0.1.1发行37203291324通过，OIDC→构建/lint/单测/签名→privateOSS→latest完整运行成功 |
-| APK / 飞书发送 | 已交付0.1.1 | artifacts/android/0.1.1/app.apk来自GitHub正式发行；签名、包名、版本1001、大小及SHA校验通过；飞书上传及消息发送code0，并返回message_id |
+| GitHub Actions / 发布工具 | 0.2.0完成 | CI37205318302和发行37205320284成功，OIDC→构建/lint/单测/签名→privateOSS→latest完整运行成功 |
+| APK / 飞书发送 | 已交付0.2.0 | artifacts/android/0.2.0/app.apk来自GitHub正式发行，版本2000、同签名与SHA/大小通过；飞书APK及简短升级说明发送成功 |
 | 真机连接 | 无 | `adb devices` 未发现设备，不能声称 OTG/锁屏行为通过 |
 
 当前Android首版已交付，开发/生产云端部署和自动发布已验证。下一步是用户真机验收及修复反馈；iOS仅占位，不能称iOS完成。以下五阶段作为复现与后续维护步骤，历史进度段落不代表当前未完成状态。
@@ -177,7 +177,7 @@ Android增加开发applicationIdSuffix `.dev`、开发标签，生产app ID不�
 
 2026-10-04 发行OIDC403已定位：GitHub新仓库use_immutable_subject=true，subject前缀包含owner/repository数字ID，与传统repo:name/name不一致。用gh api repos/makewheels/dashcam-transfer/actions/oidc/customization/sub实时读取sub_claim_prefix，再绑定前缀+:ref:refs/tags/v*；保留repository/ref/audience限制，未放宽PR或main读取。v0.1.0未发布APK，补充脱敏错误日志后以v0.1.1重试，运行37203291324。
 
-## 最新交付结果与下一步（优先于历史进度）
+## 0.1.1 首版交付结果（历史，当前以0.2.0节和状态表为准）
 
 2026-10-04：Android正式版0.1.1（versionCode1001）已通过GitHub发行并发送到用户飞书。安装包5287144字节，SHA-256 `f211618ef6ccc4934adb305170fe8a11ac52c638198a1bb1ed0e54e44adb1d9f`。云端安装包和latest均private，匿名APK403；手机更新接口返回0.1.1和短期签名。代码无真实凭据，公开Git不含配置APK。
 
@@ -195,11 +195,12 @@ Android增加开发applicationIdSuffix `.dev`、开发标签，生产app ID不�
 4. Wi-Fi自动上传，上传中暂停/继续与断网重连，观察分片恢复；切换流量后自动停，手动点上传才继续，再中断需手动授权。核验完成后手机副本删除；另一台手机联网看到相同云端列表。云端播放交给外部播放器，不要求转码。
 5. 锁屏运行与手机省电策略下观察通知/任务恢复；强制停止应用后需重开。手动检查更新验证当前版本提示。只接受真机实际结果，模拟或CI不能替代这些结论。发现问题记录手机型号、Android版本、动作、页面错误与对应视频大小，不记录凭据或签名URL。
 
-## 0.2.0 用户反馈修正（2026-10-04，发行进行中）
+## 0.2.0 用户反馈修正（2026-10-04，已发行并飞书交付）
 
 - 手机副本清理已改成MediaStore系统回收站，云端校验成功先持久化cleanup_error，再核对内容并IS_TRASHED=1；失败保持可重试，Android10保留原副本，严禁降级ContentResolver.delete。TF卡原视频删除策略不受此手机回收站改动影响。
 - 重做首次三步引导与首页唯一主动作、四个底部Tab（开始/待上传/云端/设置）、真实可移动存储挂载/拔出反馈；无视频时入口直接引导导入。总任务进度与当前文件阶段分开，速度/当前阶段ETA/估计总ETA分别标出；导入总进度包含复制和两次内容校验。列表状态局部更新，避免每个文件状态变动把列表和滚动位置重建。
 - SQLite v1→v2仅新增import_time，保留旧队列、断点和URI。新导入固定北京时间时分秒+唯一ID，同批文件保持同目录。手机与OSS都使用该命名；服务端兼容0.1.1客户端，并保留已存在记录object_key。
 - 本地8项服务端测试通过；开发真实OSS9MiB分片、续传/租约/完整CRC/签名下载/匿名403及坏CRC拒绝再次通过，测试数据已清理。两环境API已更新。
 - Android35隔离模拟器4项设备测试通过：真实MediaStore回收站且内容仍可读取、旧SQLite迁移保留断点、虚拟可移动存储实际unmount/mount后引导反馈、首次引导与导航/进度页。另4项纯单元测试与lint通过。截图在docs/screenshots/0.2.0，fixture进度截图是布局验证，不是真实传输测速。
-- 还需完成源码检查/CI与v0.2.0标签发行，校验正式私有OSS安装包并飞书交付。红米/一加真实OTG、省电锁屏和系统相册回收站入口仍由用户验收，模拟器不替代这些结论。
+- 源码及截图敏感信息扫描无命中、未提交APK；GitHub CI37205318302与v0.2.0发行37205320284均成功。正式安装包5319896字节，SHA-256 `8ae57e49136d2e3cf502b14dfac3000e8c75c1b56dd1ae73d2a80c9813dc4104`；versionCode2000，包名com.makewheels.dashcam，新旧签名证书完全一致。更新接口指向0.2.0，匿名APK403。飞书上传/发送均返回code0和message_id，附升级说明。隔离模拟器及所有构建中转已退出清理。
+- 下一步只处理用户真实使用反馈；红米/一加真实OTG、省电锁屏和系统相册回收站入口仍由用户验收，模拟器不替代这些结论。不要重复发布0.2.0不同APK，下一次修改必须增加版本并继续沿用签名。
