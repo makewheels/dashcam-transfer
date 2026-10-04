@@ -15,7 +15,7 @@
 1. 来源是用户通过系统文件选择器选定的一个目录，常见名字是 `video`，但不能写死路径。只处理直接包含的文件，不递归扫描子目录；用户确认该目录内都是视频。保存 URI 与持久读写授权，重插读卡器后尝试复用，失效才请求重选。
 2. 不格式化 TF 卡，不删除目录，不动所选视频目录以外的计数器、配置等文件。复制中或校验失败不能删除来源。整次导入全部文件复制并校验成功后，默认自动删除对应原文件，设置允许关闭自动删除。逐个删除结果需要持久记录，删除失败可重试。
 3. 导入前检查：可用空间至少等于本次需要复制的容量加 **5 GiB**。不足直接拒绝并提示清理多少空间，不做容量不足的拆批导入。任务途中空间变少则暂停保留原文件。
-4. 手机保存到共享目录，文件管理器可见，按当天日期组织；同名目标不能覆盖。默认拟用 `Movies/行车视频/YYYY-MM-DD/`。API 29+ 使用 MediaStore，复制未完成对象使用 `IS_PENDING`；复制校验完成后才公开。需要验证所选 MediaStore 集合与相对目录兼容。
+4. 手机保存到共享目录，文件管理器可见，按当天日期组织；同名目标不能覆盖。使用 `Movies/行车视频/YYYY-MM-DD/<导入ID前8位>/`。API 29+ 使用 MediaStore，复制未完成对象使用 `IS_PENDING`；复制校验完成后才公开。需要验证所选 MediaStore 集合与相对目录兼容。
 5. 同时显示整体、当前文件、已完成/总文件数、已处理/总容量、速度、预计剩余时间；复制、校验、上传需要区分。预计时间根据当前阶段和近期吞吐计算，初期显示计算中。暂停不显示继续增长的速度。
 6. 本地 SQLite 保存任务与断点。读卡器断开、任务进程消失、锁屏、切换 App 后可恢复。复制断点若提供方无法可靠 seek，可重复制当前文件并明确提示，不能伪造已完成。保留已完成文件的状态。
 7. Wi-Fi 自动开始或恢复上传；用户明确暂停则不自动覆盖其意愿。移动网络必须点击上传；网络切换到移动网络、重启或进程恢复后不沿用之前的流量授权。手动流量许可只在本次正在运行的上传中有效。
@@ -33,28 +33,28 @@
 | 项目 | 状态 | 证据 / 未完成部分 |
 |---|---|---|
 | 需求确认 | 完成 | 上述规则源于本次对话 |
-| 本地项目 | 已创建 | `/Users/mint/workspace/tools/dashcam-transfer`，已 `git init -b main`；GitHub公开仓库已创建并设置origin；尚无首个commit/push |
+| 本地项目 | 已创建 | `/Users/mint/workspace/tools/dashcam-transfer`，GitHub公开仓库已创建，源码已commit/push |
 | 现有 MongoDB 专用库和账号 | 完成并验证 | `dashcam_transfer` / `dashcam_transfer_app`；仅本库 `readWrite`；认证、写读删与其他库拒绝均通过 |
 | 数据库初始化记录 | 完成 | `transfer_metadata` 中 `_id=schema, version=1`；尚无真实视频记录 |
-| Infisical 数据库凭据 | 完成并回读 | `tools / dev /dashcam`，四个键名见下文 |
-| infra 记录 | 已修改并暂存 | inventory、secrets、数据库说明、`services/dashcam` 初始化脚本及当日 changelog；仓库检查通过；尚未 commit/push |
-| OSS Bucket / RAM | 已创建 | 北京 `dashcam-transfer-media`，回读 ACL private；runtime用户只读写视频及读releases，release用户只读写releases |
+| Infisical 数据库凭据 | 完成并回读 | 开发 `tools/dev /dashcam`、生产 `tools/prod /dashcam`；发行在独立项目 |
+| infra 记录 | 已提交推送 | inventory、secrets、数据库/TLS期望配置与当日changelog；仓库检查通过，提交9ae1bb6 |
+| OSS Bucket / RAM | 两环境完成 | 北京dev/prod两个private Bucket、四个独立最小权限RAM用户；旧media Bucket、旧函数、旧用户/Key/策略已删除 |
 | 云函数 | 两环境部署与鉴权通过 | dev/prod health 200、有效凭据列表200、无凭据401；无预留实例；源码包来自对应私有OSS |
 | 服务端代码 | 本地测试通过 | uv.lock已生成；6项故障测试通过，独立临时真实MongoDB也通过；开发环境真实私有OSS分片续传、冲突、最终CRC、错误CRC拒绝、签名下载SHA一致和匿名403均通过；测试对象和记录已清理 |
 | Android 代码 | 调试构建/静态检查通过 | Activity、Service、Engine、Worker、InstallProvider与Wi-Fi监听已实现；assembleDebug、lintDebug、2项CRC/SHA单元测试通过；尚无真机运行证据 |
 | iOS | 仅占位 | `ios/README.md` |
-| GitHub Actions / 发布工具 | 已编写、未运行 | CI、本地FC部署、私有OSS发布、OIDC获取凭据均有源码；GitHub公开仓库已创建；尚无首个push或真实workflow运行 |
-| APK / 飞书发送 | 未完成 | 没有任何 APK 或发送记录 |
+| GitHub Actions / 发布工具 | 完成并实际运行通过 | CI37203289235通过；v0.1.1发行37203291324通过，OIDC→构建/lint/单测/签名→privateOSS→latest完整运行成功 |
+| APK / 飞书发送 | 已交付0.1.1 | artifacts/android/0.1.1/app.apk来自GitHub正式发行；签名、包名、版本1001、大小及SHA校验通过；飞书上传及消息发送code0，并返回message_id |
 | 真机连接 | 无 | `adb devices` 未发现设备，不能声称 OTG/锁屏行为通过 |
 
-当前工作区部分代码已通过测试，但云端部署和APK交付未完成，恢复任务不要直接发布。以磁盘实际内容为准；只有通过下列阶段门槛才能逐项改成完成。
+当前Android首版已交付，开发/生产云端部署和自动发布已验证。下一步是用户真机验收及修复反馈；iOS仅占位，不能称iOS完成。以下五阶段作为复现与后续维护步骤，历史进度段落不代表当前未完成状态。
 
 ## 五个实施阶段
 
 ### 1. 项目、配置与私有云资源准备
 
 - 在公开项目中补充 README、配置示例、MIT License、构建指南和贡献安全边界；源码及路径不能使用执行者名称。
-- 新建名称长期稳定的专用 Bucket，优先尝试 `dashcam-transfer-media`，重名再添加所有者区分；北京、标准存储、本地冗余、private。不设置自动删视频的生命周期；可设置清理超过 7 天的未完成 multipart。
+- 使用开发 `dashcam-transfer-dev` 与生产 `dashcam-transfer-prod` 两个独立专用 Bucket；北京、标准存储、本地冗余、private。不设置自动删视频的生命周期；可设置清理超过 7 天的未完成 multipart。
 - 建立仅本 Bucket / 指定前缀有效的 RAM 权限；服务端不需要删除已完成视频、修改 ACL、操作其他 Bucket 或管理 RAM。视频路径为 `videos/日期/内容标识/原文件名`，发布路径为 `releases/android/版本/app.apk`。
 - 服务端优先角色/短期身份；若使用专用 RAM AccessKey，保存 Infisical，运行时受控注入，权限和轮换写 infra。发布身份只写 release 与函数代码前缀，不得复用全账号管理员凭据。
 - 用受限 Machine Identity / GitHub OIDC 读取本项目凭据，绑定 `makewheels/dashcam-transfer` 与发布 ref/环境；不要复用其他仓库身份或使 PR 获得生产凭据。
@@ -130,7 +130,7 @@
 
 MongoDB `videos`：内容标识 `_id`、sha256、crc64（无符号十进制字符串）、size、name、date、object_key、state、created_at、verified_at、owner、lease_until、upload_id。共享列表只显示成功核验的文件，未上传副本只在持有它的手机待上传列表出现。
 
-SQLite `files` 初稿：id、内部batch、source、tree、name、size、modified、dest、offset、state、sha、crc、date、error、source_deleted；`batches`仅用于整批校验后删除，尚须补足错误恢复与删除状态。状态机需实现为：waiting → copying → verifying → ready → uploading → uploaded → local cleanup；错误/暂停保留之前可恢复状态，不仅用一条error覆盖事实。
+SQLite `files`：id、内部batch、source、tree、name、size、modified、dest、offset、state、sha、crc、date、error、source_deleted；`batches`仅用于整批校验后删除，保留错误恢复与删除状态。状态机需实现为：waiting → copying → verifying → ready → uploading → uploaded → local cleanup；错误/暂停保留之前可恢复状态，不仅用一条error覆盖事实。
 
 ## 凭据与运维定位（只记录名称，不记录真值）
 
@@ -141,7 +141,7 @@ SQLite `files` 初稿：id、内部batch、source、tree、name、size、modifie
 - 既有数据库主机定位从infra `inventory/hosts.yaml`读取。默认SSH别名`tencent-db`本机不可解析；可以按inventory使用TAT，或现有 `services/video-editing/remote_ops.py` 的临时SSH授权机制（必须finally清理授权）。导入模块时禁用写pycache。
 - 云CLI `aliyun`已认证，北京；不得输出完整配置。已有函数`site-monitor-api`配置可作为只读参考，但不能修改其工作负载或复用其消费者权限。
 - 飞书应用键在Infisical `tools/dev /site-monitor`：`FEISHU_APP_ID`、`FEISHU_APP_SECRET`、`FEISHU_USER_ID`、`FEISHU_CHAT_ID`。只输出键名，验证对象定位后发送给用户。需要新消费者密钥来源登记；不修改旧应用凭据。
-- 后续拟新增：`DASHCAM_APP_TOKEN`、`DASHCAM_API_URL`、`DASHCAM_KEYSTORE_BASE64`、`DASHCAM_KEYSTORE_PASSWORD`、`OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET`、`OSS_BUCKET`、`OSS_ENDPOINT`、`OSS_REGION`；其他生产身份材料按具体选型登记，不随意扩大权限。
+- 已配置的键名（运行/发行按上述项目隔离）：`DASHCAM_APP_TOKEN`、`DASHCAM_API_URL`、`DASHCAM_KEYSTORE_BASE64`、`DASHCAM_KEYSTORE_PASSWORD`、`OSS_ACCESS_KEY_ID`、`OSS_ACCESS_KEY_SECRET`、`OSS_BUCKET`、`OSS_ENDPOINT`、`OSS_REGION`；其他生产身份材料按具体选型登记，不随意扩大权限。
 - 当前数据库命名已从`dashcam_archive` / `dashcam_archive_app`迁移到`dashcam_transfer` / `dashcam_transfer_app`，旧库和旧用户确认移除，不要再次使用archive名称。
 
 ## 本机工具与工作约束
@@ -172,3 +172,23 @@ SQLite `files` 初稿：id、内部batch、source、tree、name、size、modifie
 Android增加开发applicationIdSuffix `.dev`、开发标签，生产app ID不变；构建改用 `deploy/build_android.py`，所有Gradle中转及临时keystore在系统临时目录，finally清理，仅请求的APK持久输出。当前正在本机构建production 0.1.0/versionCode1000并执行lint、单元测试和签名验证。下一步源码敏感信息扫描、首次commit/push、GitHubCI/tag发布，再从privateOSS下载发行APK并通过飞书交付。
 
 2026-10-04 过渡资源清理完成：已删除dashcam-transfer-api函数及HTTP触发器；dashcam-transfer-media仅有两份旧函数ZIP、无视频、无分片上传，已清空并删除Bucket；旧dashcam-transfer-runtime / dashcam-transfer-release RAM用户、全部AccessKey及对应旧自定义策略已删除。复查仅保留dev/prod各runtime/release共四个项目RAM用户。本地生产APK签名/lint/单元测试通过；源码已公开推送。GitHub首次CI因SDK动作默认安装已下架tools包失败，已改为platform-tools并推送修复，等待验证；正式标签发布和飞书交付尚未完成。
+
+2026-10-04 发行OIDC403已定位：GitHub新仓库use_immutable_subject=true，subject前缀包含owner/repository数字ID，与传统repo:name/name不一致。用gh api repos/makewheels/dashcam-transfer/actions/oidc/customization/sub实时读取sub_claim_prefix，再绑定前缀+:ref:refs/tags/v*；保留repository/ref/audience限制，未放宽PR或main读取。v0.1.0未发布APK，补充脱敏错误日志后以v0.1.1重试，运行37203291324。
+
+## 最新交付结果与下一步（优先于历史进度）
+
+2026-10-04：Android正式版0.1.1（versionCode1001）已通过GitHub发行并发送到用户飞书。安装包5287144字节，SHA-256 `f211618ef6ccc4934adb305170fe8a11ac52c638198a1bb1ed0e54e44adb1d9f`。云端安装包和latest均private，匿名APK403；手机更新接口返回0.1.1和短期签名。代码无真实凭据，公开Git不含配置APK。
+
+- 发行证据：https://github.com/makewheels/dashcam-transfer/actions/runs/37203291324
+- CI证据：https://github.com/makewheels/dashcam-transfer/actions/runs/37203289235
+- infra已提交推送，两环境资源清单和密钥唯一来源已更新。旧单Bucket/函数/RAM/Key/策略已删除；仅保留两个private Bucket与四个专用RAM用户。发行材料只在独立发行项目；TLS服务私钥仅生产运行目录。
+- 下一位维护者首先读取本节与当前状态表，按反馈修复；不要重复创建资源、轮换签名或重新发送旧版。后续发行推送更高语义版本标签，保留生产签名；通过GitHub不可变subject前缀限制OIDC。v0.1.0只有失败发行记录，未上架正式APK。
+- 尚无真机安装/OTG/锁屏证据；iOS尚未实现。
+
+### 用户真机验收顺序
+
+1. 在红米K40 Pro和OnePlus9安装飞书APK，确认首页与通知权限正常。先在TF卡选择含少量测试视频的目录，关闭自动删除测试；退出重开确认目录记忆。两台手机均需验证系统SAF读卡器能读写该TF卡文件系统。
+2. 断网导入，核对文件数/字节/进度/速度/剩余时间，以及手机文件管理器的日期目录。复制中暂停/恢复、拔卡/重新插卡、退出/重开，确认继续后最终文件SHA与原文件相同；空间不足时拒绝且保留5GiB。
+3. 用另一份测试导入启用默认自动删除：只有整批复制校验完成后删除对应源视频，故障时未完成源文件保留，目录及计数器/编号文件不被格式化或清除。实际源文件删除是否支持由系统SAF供应者决定，失败必须显示并可重试。
+4. Wi-Fi自动上传，上传中暂停/继续与断网重连，观察分片恢复；切换流量后自动停，手动点上传才继续，再中断需手动授权。核验完成后手机副本删除；另一台手机联网看到相同云端列表。云端播放交给外部播放器，不要求转码。
+5. 锁屏运行与手机省电策略下观察通知/任务恢复；强制停止应用后需重开。手动检查更新验证当前版本提示。只接受真机实际结果，模拟或CI不能替代这些结论。发现问题记录手机型号、Android版本、动作、页面错误与对应视频大小，不记录凭据或签名URL。
