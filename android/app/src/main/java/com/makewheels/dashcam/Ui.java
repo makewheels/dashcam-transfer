@@ -143,6 +143,12 @@ final class Ui {
       c.scale(getBounds().width() / 24f, getBounds().height() / 24f);
       Path p = new Path();
       switch (name) {
+        case "history":
+          c.drawCircle(12, 12, 9, paint);
+          p.moveTo(12, 6);
+          p.lineTo(12, 12);
+          p.lineTo(16, 14);
+          break;
         case "start":
           p.moveTo(3, 10);
           p.lineTo(12, 3);

@@ -5,6 +5,7 @@ import android.app.*;
 import android.content.*;
 import android.database.Cursor;
 import android.graphics.Color;
+import android.hardware.usb.*;
 import android.net.*;
 import android.os.*;
 import android.os.storage.*;
@@ -24,12 +25,24 @@ public final class MainActivity extends Activity {
   TransferEngine connectivity;
   SharedPreferences prefs;
   Ui ui;
-  LinearLayout root, list, cloudList;
+  LinearLayout root, list, cloudList, batchList;
+  TextView networkState,
+      networkHelp,
+      otgState,
+      otgHelp,
+      copyButton,
+      uploadButton,
+      homePause,
+      liveHint,
+      batchStatus;
+  JSONArray remoteBatches = new JSONArray();
+  boolean batchesLoading = false, readerPresent = false;
+  String batchNext = null;
   final ExecutorService executor = Executors.newSingleThreadExecutor();
   final Handler handler = new Handler(Looper.getMainLooper());
-  final View[] pages = new View[4];
-  final TextView[] navLabels = new TextView[4];
-  final ImageView[] navIcons = new ImageView[4];
+  final View[] pages = new View[5];
+  final TextView[] navLabels = new TextView[5];
+  final ImageView[] navIcons = new ImageView[5];
   LinearLayout queueControls;
   TextView queueAction, queuePause;
   TextView heading,
@@ -65,7 +78,7 @@ public final class MainActivity extends Activity {
     UploadWorker.schedule(this);
     registerMedia();
     checkStorage(false);
-    if (!prefs.getBoolean("intro_seen", false)) onboarding();
+    prefs.edit().putBoolean("intro_seen", true).apply();
     if (System.currentTimeMillis() - prefs.getLong("update_checked", 0) > 24 * 60 * 60 * 1000L)
       checkUpdates(true);
   }
@@ -107,14 +120,16 @@ public final class MainActivity extends Activity {
     root.addView(container, new LinearLayout.LayoutParams(-1, 0, 1));
     pages[0] = homePage();
     pages[1] = queuePage();
-    pages[2] = cloudPage();
-    pages[3] = settingsPage();
+    pages[2] = batchPage();
+    pages[3] = cloudPage();
+    pages[4] = settingsPage();
     for (View page : pages) container.addView(page, new FrameLayout.LayoutParams(-1, -1));
     LinearLayout bottom = ui.row();
     bottom.setPadding(dp(8), dp(8), dp(8), dp(8));
     bottom.setBackgroundColor(Color.WHITE);
-    String[] labels = {"开始", "待上传", "云端", "设置"}, icons = {"start", "upload", "cloud", "settings"};
-    for (int i = 0; i < 4; i++) {
+    String[] labels = {"首页", "待上传", "批次", "云端", "设置"},
+        icons = {"start", "upload", "history", "cloud", "settings"};
+    for (int i = 0; i < 5; i++) {
       final int index = i;
       LinearLayout item = ui.column();
       item.setGravity(Gravity.CENTER);
@@ -144,40 +159,330 @@ public final class MainActivity extends Activity {
 
   View homePage() {
     LinearLayout content = ui.column();
-    guideCard = ui.card();
-    guideStep = ui.chip("第 1 步 · 连接", Ui.BLUE, Ui.TINT);
-    guideCard.addView(guideStep, new LinearLayout.LayoutParams(-2, -2));
-    guideTitle = ui.bold("插入 TF 卡读卡器", 24, Ui.INK);
-    ui.add(guideCard, guideTitle, 18);
-    guideBody = text("", 15, Ui.MUTED);
-    ui.add(guideCard, guideBody, 12);
-    guideAction = ui.button("", true, this::guideNext);
-    ui.add(guideCard, guideAction, 24);
-    guideSecondary = ui.button("", false, () -> selectTab(1));
-    ui.add(guideCard, guideSecondary, 10);
-    ui.add(content, guideCard, 0);
-    homeTask = new TaskCard("导入进度");
-    ui.add(content, homeTask.card, 16);
+    LinearLayout connections = ui.row();
+    LinearLayout net = ui.card();
+    net.addView(ui.icon("wifi", Ui.BLUE, 25));
+    ui.add(net, ui.bold("网络", 13, Ui.MUTED), 12);
+    networkState = ui.bold("检测中", 18, Ui.INK);
+    ui.add(net, networkState, 8);
+    networkHelp = text("", 12, Ui.MUTED);
+    ui.add(net, networkHelp, 8);
+    LinearLayout otg = ui.card();
+    otg.addView(ui.icon("folder", Ui.BLUE, 25));
+    ui.add(otg, ui.bold("OTG / TF 卡", 13, Ui.MUTED), 12);
+    otgState = ui.bold("检测中", 18, Ui.INK);
+    ui.add(otg, otgState, 8);
+    otgHelp = text("", 12, Ui.MUTED);
+    ui.add(otg, otgHelp, 8);
+    connections.addView(net, new LinearLayout.LayoutParams(0, -1, 1));
+    LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -1, 1);
+    lp.leftMargin = dp(12);
+    connections.addView(otg, lp);
+    ui.add(content, connections, 0);
     sourceCard = ui.card();
-    LinearLayout sourceTitle = ui.row();
-    sourceTitle.addView(ui.icon("folder", Ui.BLUE, 24));
-    TextView title = ui.bold("视频来源", 15, Ui.INK);
-    LinearLayout.LayoutParams t = new LinearLayout.LayoutParams(0, -2, 1);
-    t.leftMargin = dp(10);
-    sourceTitle.addView(title, t);
-    TextView change = ui.bold("更换", 13, Ui.BLUE);
-    change.setPadding(dp(12), dp(10), 0, dp(10));
-    change.setOnClickListener(v -> choose());
-    sourceTitle.addView(change);
-    sourceCard.addView(sourceTitle);
-    source = text("尚未选择文件夹", 14, Ui.INK);
+    LinearLayout top = ui.row();
+    top.addView(ui.bold("视频文件夹", 15, Ui.INK), new LinearLayout.LayoutParams(0, -2, 1));
+    top.addView(button("选择 / 更换", this::choose));
+    sourceCard.addView(top);
+    source = text("", 14, Ui.INK);
     ui.add(sourceCard, source, 10);
     space = text("", 12, Ui.MUTED);
     ui.add(sourceCard, space, 10);
     ui.add(content, sourceCard, 16);
-    TextView help = ui.button("需要帮助？查看使用引导", false, this::onboarding);
-    ui.add(content, help, 16);
+    LinearLayout actions = ui.card();
+    actions.addView(ui.bold("转存操作", 16, Ui.INK));
+    liveHint = text("", 13, Ui.MUTED);
+    ui.add(actions, liveHint, 10);
+    copyButton = ui.button("拷贝到手机", true, this::scan);
+    ui.add(actions, copyButton, 18);
+    uploadButton = ui.button("上传云端", false, this::upload);
+    ui.add(actions, uploadButton, 10);
+    homePause = ui.button("暂停当前任务", false, () -> TransferEngine.stop(this));
+    ui.add(actions, homePause, 10);
+    ui.add(content, actions, 16);
+    homeTask = new TaskCard("当前任务进度");
+    ui.add(content, homeTask.card, 16);
+    ui.add(content, button("查看之前的批次", () -> selectTab(2)), 16);
     return scroll(content);
+  }
+
+  View batchPage() {
+    LinearLayout content = ui.column();
+    LinearLayout intro = ui.card();
+    LinearLayout row = ui.row();
+    row.addView(ui.bold("之前的批次", 21, Ui.INK), new LinearLayout.LayoutParams(0, -2, 1));
+    row.addView(button("同步", () -> loadBatches(false)));
+    intro.addView(row);
+    batchStatus = text("本机导入记录一直保留；联网同步所有手机已上传的批次。", 13, Ui.MUTED);
+    ui.add(intro, batchStatus, 10);
+    ui.add(content, intro, 0);
+    batchList = ui.column();
+    ui.add(content, batchList, 18);
+    return scroll(content);
+  }
+
+  String lastBatchRows = "";
+
+  String timeLabel(String value) {
+    return value == null
+        ? "时间未知"
+        : value.replace('_', ' ').replaceAll(" (\\d{2})-(\\d{2})-(\\d{2})$", " $1:$2:$3");
+  }
+
+  final class BatchView {
+    String id, time;
+    long size;
+    int count, copied, uploaded, cloud, missing;
+    List<Store.Item> local = new ArrayList<>();
+  }
+
+  void loadBatches(boolean more) {
+    if (batchesLoading) return;
+    batchesLoading = true;
+    batchStatus.setText("正在同步云端批次，本机记录可以查看…");
+    renderBatches();
+    executor.execute(
+        () -> {
+          try {
+            JSONObject result =
+                Api.call(
+                    "GET",
+                    "/batches"
+                        + (more && batchNext != null
+                            ? "?before=" + URLEncoder.encode(batchNext, "UTF-8")
+                            : ""),
+                    null);
+            runOnUiThread(
+                () -> {
+                  if (!more) remoteBatches = new JSONArray();
+                  JSONArray fetched = result.optJSONArray("batches");
+                  for (int i = 0; i < fetched.length(); i++)
+                    remoteBatches.put(fetched.optJSONObject(i));
+                  batchNext = result.isNull("next") ? null : result.optString("next", null);
+                  batchesLoading = false;
+                  batchStatus.setText("本机记录已保留 · 云端批次已同步");
+                  lastBatchRows = "";
+                  renderBatches();
+                });
+          } catch (Exception e) {
+            runOnUiThread(
+                () -> {
+                  batchesLoading = false;
+                  batchStatus.setText("本机记录可查看。云端未同步：" + TransferEngine.readable(e));
+                  renderBatches();
+                });
+          }
+        });
+  }
+
+  void renderBatches() {
+    if (batchList == null) return;
+    Map<String, BatchView> map = new LinkedHashMap<>();
+    for (Store.Item item : store.files("1=1")) {
+      if (item.batch == null) continue;
+      BatchView batch =
+          map.computeIfAbsent(
+              item.batch,
+              k -> {
+                BatchView b = new BatchView();
+                b.id = k;
+                return b;
+              });
+      batch.local.add(item);
+      batch.count++;
+      batch.size += item.size;
+      batch.time = item.importTime != null ? item.importTime : item.date;
+      if (item.sha != null) batch.copied++;
+      if (Arrays.asList("uploaded", "cleanup_error").contains(item.state)) batch.uploaded++;
+    }
+    for (int i = 0; i < remoteBatches.length(); i++) {
+      JSONObject remote = remoteBatches.optJSONObject(i);
+      String id = remote.optString("id");
+      BatchView batch =
+          map.computeIfAbsent(
+              id,
+              k -> {
+                BatchView b = new BatchView();
+                b.id = k;
+                return b;
+              });
+      batch.cloud = remote.optInt("count");
+      batch.missing = remote.optInt("missing");
+      if (batch.local.isEmpty()) {
+        batch.count = batch.cloud;
+        batch.size = remote.optLong("size");
+        batch.time = remote.optString("import_time", remote.optString("date"));
+      }
+    }
+    List<BatchView> batches = new ArrayList<>(map.values());
+    batches.sort((a, b) -> Objects.toString(b.time, "").compareTo(Objects.toString(a.time, "")));
+    String signature = "";
+    for (BatchView b : batches)
+      signature +=
+          b.id
+              + ":"
+              + b.count
+              + ":"
+              + b.copied
+              + ":"
+              + b.uploaded
+              + ":"
+              + b.cloud
+              + ":"
+              + b.missing
+              + ";";
+    signature += batchNext;
+    if (signature.equals(lastBatchRows) && batchList.getChildCount() > 0) return;
+    lastBatchRows = signature;
+    batchList.removeAllViews();
+    if (batches.isEmpty()) {
+      empty(
+          batchList,
+          "history",
+          "还没有导入批次",
+          "每次拷贝会生成一个批次。\n完成上传后，记录仍然保留。",
+          "去拷贝视频",
+          () -> selectTab(0));
+      return;
+    }
+    for (BatchView batch : batches) {
+      LinearLayout card = ui.card();
+      card.addView(ui.bold(timeLabel(batch.time), 17, Ui.INK));
+      ui.add(
+          card, text(batch.count + " 个视频 · " + TransferEngine.bytes(batch.size), 13, Ui.MUTED), 10);
+      String detail =
+          batch.local.isEmpty()
+              ? "云端已校验 " + batch.cloud + " 个"
+              : "本机已导入 "
+                  + batch.copied
+                  + " / "
+                  + batch.count
+                  + " · 云端已确认 "
+                  + Math.max(batch.uploaded, batch.cloud)
+                  + " 个";
+      if (batch.missing > 0) detail += " · " + batch.missing + " 个云端文件不存在";
+      ui.add(card, text(detail, 12, Ui.GREEN), 8);
+      ui.add(card, text("点击查看这批视频", 12, Ui.BLUE), 10);
+      card.setOnClickListener(v -> showBatch(batch));
+      ui.add(batchList, card, 12);
+    }
+    if (batchNext != null) ui.add(batchList, button("加载更早的批次", () -> loadBatches(true)), 16);
+  }
+
+  void showBatch(BatchView batch) {
+    LinearLayout body = ui.column();
+    body.setPadding(dp(20), dp(8), dp(20), dp(20));
+    TextView info = text("本机 " + batch.local.size() + " 个记录 · 正在读取云端视频…", 13, Ui.MUTED);
+    body.addView(info);
+    LinearLayout rows = ui.column();
+    ui.add(body, rows, 12);
+    ScrollView scroll = new ScrollView(this);
+    scroll.addView(body);
+    new AlertDialog.Builder(this)
+        .setTitle(timeLabel(batch.time))
+        .setView(scroll)
+        .setPositiveButton("关闭", null)
+        .show();
+    Set<String> seen = new HashSet<>();
+    for (Store.Item item : batch.local) {
+      if (item.sha != null) seen.add(item.sha);
+      LinearLayout row = ui.card();
+      row.addView(ui.bold(item.name, 14, Ui.INK));
+      ui.add(
+          row,
+          text(
+              TransferEngine.bytes(item.size)
+                  + " · "
+                  + ("uploaded".equals(item.state) ? "已上传 · 手机副本已回收" : fileState(item.state)),
+              12,
+              Ui.MUTED),
+          10);
+      ui.add(rows, row, 10);
+      if (Arrays.asList("uploaded", "cleanup_error").contains(item.state) && item.sha != null)
+        row.setOnClickListener(v -> playCloud(item.sha));
+      else if (item.dest != null)
+        row.setOnClickListener(v -> play(Uri.parse(item.dest), "video/*"));
+    }
+    loadBatchFiles(batch.id, null, rows, info, seen, batch.local.isEmpty());
+  }
+
+  void playCloud(String id) {
+    executor.execute(
+        () -> {
+          try {
+            JSONObject result = Api.call("GET", "/videos/" + id + "/url", null);
+            runOnUiThread(() -> play(Uri.parse(result.optString("url")), "video/*"));
+          } catch (Exception e) {
+            runOnUiThread(() -> toast(TransferEngine.readable(e)));
+          }
+        });
+  }
+
+  void loadBatchFiles(
+      String id,
+      String before,
+      LinearLayout rows,
+      TextView info,
+      Set<String> seen,
+      boolean onlyCloud) {
+    executor.execute(
+        () -> {
+          try {
+            JSONObject result =
+                Api.call(
+                    "GET",
+                    "/videos?batch="
+                        + URLEncoder.encode(id, "UTF-8")
+                        + (before != null ? "&before=" + URLEncoder.encode(before, "UTF-8") : ""),
+                    null);
+            runOnUiThread(
+                () -> {
+                  JSONArray files = result.optJSONArray("videos");
+                  for (int i = 0; i < files.length(); i++) {
+                    JSONObject f = files.optJSONObject(i);
+                    String sha = f.optString("_id");
+                    if (!seen.add(sha)) continue;
+                    LinearLayout row = ui.card();
+                    row.addView(ui.bold(f.optString("name"), 14, Ui.INK));
+                    ui.add(
+                        row,
+                        text(
+                            TransferEngine.bytes(f.optLong("size"))
+                                + " · "
+                                + ("missing".equals(f.optString("state"))
+                                    ? "云端文件已不存在"
+                                    : "已上传 · 云端已校验"),
+                            12,
+                            Ui.MUTED),
+                        10);
+                    ui.add(rows, row, 10);
+                    if (!"missing".equals(f.optString("state")))
+                      row.setOnClickListener(v -> playCloud(sha));
+                  }
+                  info.setText("已展示本机记录与此批云端视频");
+                  String next = result.isNull("next") ? null : result.optString("next", null);
+                  if (next != null) {
+                    TextView more =
+                        button(
+                            "加载此批更多视频",
+                            () -> loadBatchFiles(id, next, rows, info, seen, onlyCloud));
+                    more.setOnClickListener(
+                        v -> {
+                          rows.removeView(more);
+                          loadBatchFiles(id, next, rows, info, seen, onlyCloud);
+                        });
+                    ui.add(rows, more, 12);
+                  }
+                });
+          } catch (Exception e) {
+            runOnUiThread(
+                () ->
+                    info.setText(
+                        (onlyCloud ? "云端暂时无法读取" : "本机记录可查看，云端暂未同步")
+                            + "："
+                            + TransferEngine.readable(e)));
+          }
+        });
   }
 
   void insets(View view) {
@@ -311,17 +616,18 @@ public final class MainActivity extends Activity {
 
   void selectTab(int selected) {
     tab = selected;
-    String[] titles = {"开始", "待上传", "云端", "设置"},
-        sub = {"跟着下一步，完成视频转存", "查看手机上的待上传视频", "已完成校验的云端视频", "按你的习惯调整转存方式"},
-        icons = {"start", "upload", "cloud", "settings"};
-    for (int i = 0; i < 4; i++) {
+    String[] titles = {"首页", "待上传", "批次", "云端", "设置"},
+        sub = {"查看连接状态，拷贝或上传视频", "查看手机上的待上传视频", "按每次导入时间查看记录", "已完成校验的云端视频", "按你的习惯调整转存方式"},
+        icons = {"start", "upload", "history", "cloud", "settings"};
+    for (int i = 0; i < 5; i++) {
       pages[i].setVisibility(i == tab ? View.VISIBLE : View.GONE);
       navLabels[i].setTextColor(i == tab ? Ui.BLUE : Ui.MUTED);
       navIcons[i].setImageDrawable(new Ui.Icon(icons[i], i == tab ? Ui.BLUE : Ui.MUTED));
     }
     heading.setText(titles[tab]);
     subtitle.setText(sub[tab]);
-    if (tab == 2 && !loading) loadCloud(false);
+    if (tab == 3 && !loading) loadCloud(false);
+    if (tab == 2 && !batchesLoading) loadBatches(false);
     refresh();
   }
 
@@ -425,6 +731,7 @@ public final class MainActivity extends Activity {
   protected void onDestroy() {
     handler.removeCallbacksAndMessages(null);
     unregisterReceiver(mediaReceiver);
+    unregisterReceiver(usbReceiver);
     executor.shutdownNow();
     store.close();
     connectivity.store.close();
@@ -457,6 +764,14 @@ public final class MainActivity extends Activity {
         }
       };
 
+  final BroadcastReceiver usbReceiver =
+      new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context c, Intent i) {
+          handler.postDelayed(() -> checkStorage(true), 350);
+        }
+      };
+
   void registerMedia() {
     IntentFilter filter = new IntentFilter();
     filter.addAction(Intent.ACTION_MEDIA_MOUNTED);
@@ -468,6 +783,12 @@ public final class MainActivity extends Activity {
     if (Build.VERSION.SDK_INT >= 33)
       registerReceiver(mediaReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
     else registerReceiver(mediaReceiver, filter);
+    IntentFilter usb = new IntentFilter();
+    usb.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
+    usb.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
+    if (Build.VERSION.SDK_INT >= 33)
+      registerReceiver(usbReceiver, usb, Context.RECEIVER_NOT_EXPORTED);
+    else registerReceiver(usbReceiver, usb);
   }
 
   void checkStorage(boolean notify) {
@@ -482,6 +803,13 @@ public final class MainActivity extends Activity {
           cardName = volume.getDescription(this);
           break;
         }
+    readerPresent = cardPresent;
+    UsbManager usb = (UsbManager) getSystemService(USB_SERVICE);
+    if (usb != null)
+      for (UsbDevice device : usb.getDeviceList().values())
+        for (int i = 0; i < device.getInterfaceCount(); i++)
+          if (device.getInterface(i).getInterfaceClass() == UsbConstants.USB_CLASS_MASS_STORAGE)
+            readerPresent = true;
     if (notify && cardPresent && !before) {
       toast("检测到读卡器，请选择 TF 卡的视频文件夹");
       deviceBanner.setText("已检测到 " + cardName + " · 选择视频文件夹");
@@ -513,10 +841,7 @@ public final class MainActivity extends Activity {
     TransferEngine engine = connectivity;
     network.setText(engine.wifi() ? "Wi-Fi 已连接" : engine.connected() ? "移动网络" : "未联网");
     network.setTextColor(engine.wifi() ? Ui.GREEN : Ui.MUTED);
-    deviceBanner.setVisibility(
-        cardPresent && tab == 0 && tree != null && !TransferEngine.BUSY.get()
-            ? View.VISIBLE
-            : View.GONE);
+    deviceBanner.setVisibility(View.GONE);
     deviceBanner.setText("已发现 " + cardName + " · 选择 / 更换视频文件夹");
     List<Store.Item> files = local();
     long bytes = 0;
@@ -535,7 +860,7 @@ public final class MainActivity extends Activity {
                     ? " · 已暂停，点击继续"
                     : engine.wifi() ? " · Wi-Fi 下自动上传" : " · 连接 Wi-Fi 自动上传，也可手动开始"));
     updateGuide(files, ready, tree);
-    sourceCard.setVisibility(tree == null ? View.GONE : View.VISIBLE);
+    sourceCard.setVisibility(View.VISIBLE);
     queueControls.setVisibility(files.isEmpty() ? View.GONE : View.VISIBLE);
     boolean busy = TransferEngine.BUSY.get();
     queueAction.setEnabled(!busy);
@@ -566,121 +891,52 @@ public final class MainActivity extends Activity {
 
   void updateGuide(List<Store.Item> files, int ready, String tree) {
     boolean busy = TransferEngine.BUSY.get();
-    guideSecondary.setVisibility(View.GONE);
-    guideSecondary.setOnClickListener(v -> selectTab(1));
+    boolean wifi = connectivity.wifi(), connected = connectivity.connected();
+    networkState.setText(wifi ? "Wi-Fi 已连接" : connected ? "移动网络" : "未连接网络");
+    networkState.setTextColor(wifi ? Ui.GREEN : Ui.INK);
+    networkHelp.setText(wifi ? "可自动上传" : connected ? "点击上传后确认流量" : "拷贝不需要网络");
+    otgState.setText(cardPresent ? "TF 卡已检测到" : readerPresent ? "读卡器已连接" : "未检测到读卡器");
+    otgState.setTextColor(cardPresent ? Ui.GREEN : Ui.INK);
+    otgHelp.setText(cardPresent ? cardName : readerPresent ? "请插入 TF 卡或检查挂载" : "请插入 OTG 读卡器");
+    copyButton.setEnabled(!busy && !scanning);
+    copyButton.setAlpha(busy || scanning ? .5f : 1);
+    copyButton.setText(scanning ? "正在检查视频…" : "拷贝到手机");
+    uploadButton.setEnabled(!busy && !scanning && ready > 0);
+    uploadButton.setAlpha(busy || scanning || ready == 0 ? .5f : 1);
+    uploadButton.setText("上传云端" + (ready > 0 ? " · " + ready + " 个" : ""));
+    homePause.setVisibility(busy ? View.VISIBLE : View.GONE);
+    if (scanning) liveHint.setText("正在检查文件和空间，完成后开始拷贝。");
+    else if (busy)
+      liveHint.setText(
+          "import".equals(TransferEngine.taskKind) ? "正在拷贝或校验，请保持 TF 卡连接。" : "正在上传或移入回收站，进度在下方。");
+    else if (files.stream()
+        .anyMatch(
+            f ->
+                !Arrays.asList("ready", "uploading", "upload_error", "cleanup_error")
+                    .contains(f.state))) liveHint.setText("有未完成的拷贝。连接原 TF 卡后，点「拷贝到手机」继续。");
+    else if (ready > 0)
+      liveHint.setText(
+          prefs.getBoolean("upload_paused", false)
+              ? "上传已暂停，点「上传云端」继续。"
+              : wifi ? "已导入的视频会在 Wi-Fi 下自动上传，也可手动点「上传云端」。" : "视频已在手机上。连接 Wi-Fi 自动上传，或手动点「上传云端」。");
+    else
+      liveHint.setText(
+          tree == null
+              ? "先选择 TF 卡的视频文件夹，再点「拷贝到手机」。"
+              : cardPresent ? "TF 卡已连接。点「拷贝到手机」，完整校验后再上传云端。" : "已记住视频文件夹。连接读卡器后，点「拷贝到手机」。");
     homeTask.card.setVisibility(
-        (busy || (!TransferEngine.taskIds.isEmpty() && prefs.getBoolean("upload_paused", false)))
+        busy || (!TransferEngine.taskIds.isEmpty() && prefs.getBoolean("upload_paused", false))
             ? View.VISIBLE
             : View.GONE);
     uploadTask.card.setVisibility(
         "upload".equals(TransferEngine.taskKind) && homeTask.card.getVisibility() == View.VISIBLE
             ? View.VISIBLE
             : View.GONE);
-    if (scanning) {
-      guideStep.setText("第 2 步 · 检查");
-      guideTitle.setText("正在检查视频和空间");
-      guideBody.setText("检查完成后开始复制；如果读卡器不可用，会在这里提示。 ");
-      guideAction.setText("正在检查…");
-      guideAction.setEnabled(false);
-      return;
-    }
-    guideAction.setEnabled(true);
-    if (busy) {
-      boolean importing = "import".equals(TransferEngine.taskKind);
-      guideStep.setText(importing ? "第 2 步 · 导入" : "第 3 步 · 上传");
-      guideTitle.setText(importing ? "视频正在导入手机" : "正在安全上传到云端");
-      guideBody.setText(importing ? "保持读卡器连接。你可以锁屏，或暂停后继续。" : "视频上传成功并校验后，手机副本会移入回收站。");
-      guideAction.setText("暂停当前任务");
-      return;
-    }
-    boolean unfinished = false;
-    for (Store.Item f : files)
-      if (!Arrays.asList("ready", "uploading", "upload_error", "cleanup_error").contains(f.state))
-        unfinished = true;
-    if (unfinished) {
-      guideStep.setText("第 2 步 · 继续导入");
-      guideTitle.setText("还有视频没有导入完成");
-      guideBody.setText("重新连接原读卡器，点击继续。已保存的复制进度会保留。");
-      guideAction.setText("继续导入");
-    } else if (!files.isEmpty() && files.stream().allMatch(f -> f.state.equals("cleanup_error"))) {
-      guideStep.setText("第 3 步 · 手机回收站");
-      guideTitle.setText("云端已完成，手机副本已保留");
-      guideBody.setText("这些视频已经上传并通过云端校验。移入回收站未完成，可重试，不会重新上传。");
-      guideAction.setText("重试移入回收站");
-    } else if (ready > 0) {
-      guideStep.setText("第 3 步 · 上传");
-      guideTitle.setText(
-          prefs.getBoolean("upload_paused", false)
-              ? "上传已暂停"
-              : engineWifi() ? "等待上传到云端" : "带着手机回家，连接 Wi-Fi");
-      guideBody.setText(
-          ready
-              + " 个视频已在手机上。"
-              + (prefs.getBoolean("upload_paused", false)
-                  ? "点击继续后恢复上传。"
-                  : engineWifi() ? "Wi-Fi 已连接，将自动上传，也可点击开始。" : "连接 Wi-Fi 后会自动上传；现在上传需手动确认流量。"));
-      guideAction.setText(prefs.getBoolean("upload_paused", false) ? "继续上传" : "开始上传");
-      guideSecondary.setText("查看待上传视频");
-      guideSecondary.setVisibility(View.VISIBLE);
-    } else if ("全部上传完成".equals(TransferEngine.message) && !TransferEngine.taskIds.isEmpty()) {
-      guideStep.setText("转存已完成");
-      guideTitle.setText("视频已安全存到云端");
-      guideBody.setText(TransferEngine.taskIds.size() + " 个视频已上传并完整校验。手机副本已移入回收站，你可以在云端查看视频。");
-      guideAction.setText("查看云端视频");
-      guideSecondary.setText("继续导入下一批");
-      guideSecondary.setVisibility(View.VISIBLE);
-      guideSecondary.setOnClickListener(v -> scan());
-    } else if (tree != null) {
-      guideStep.setText("第 2 步 · 导入");
-      guideTitle.setText("准备好就开始导入");
-      guideBody.setText("已记住「" + sourceName + "」。把原 TF 卡读卡器连接手机后，点击开始导入。");
-      guideAction.setText("开始导入");
-    } else {
-      guideStep.setText("第 1 步 · 连接");
-      guideTitle.setText(cardPresent ? "发现读卡器，选择视频文件夹" : "插入 TF 卡读卡器");
-      guideBody.setText(
-          cardPresent
-              ? "点击下方按钮，在系统文件选择器中打开读卡器，选择存放视频的文件夹。"
-              : "将 TF 卡插入读卡器，再连接手机。连接后选择 TF 卡里存放视频的文件夹。");
-      guideAction.setText("选择视频文件夹");
-    }
-    if (!files.isEmpty()
-        && !TransferEngine.taskIds.isEmpty()
-        && !"准备就绪".equals(TransferEngine.message)
-        && !"复制与校验完成".equals(TransferEngine.message)
-        && !"全部上传完成".equals(TransferEngine.message)
-        && !"已暂停，可继续".equals(TransferEngine.message)
-        && !TransferEngine.message.startsWith("准备")) {
-      guideBody.append("\n" + TransferEngine.message);
-    }
+    if (tab == 2 && !batchesLoading) renderBatches();
   }
 
   boolean engineWifi() {
     return connectivity.wifi();
-  }
-
-  void guideNext() {
-    if (TransferEngine.BUSY.get()) {
-      TransferEngine.stop(this);
-      return;
-    }
-    List<Store.Item> files = local();
-    for (Store.Item f : files)
-      if (!Arrays.asList("ready", "uploading", "upload_error", "cleanup_error").contains(f.state)) {
-        scan();
-        return;
-      }
-    for (Store.Item f : files)
-      if (Arrays.asList("ready", "uploading", "upload_error", "cleanup_error").contains(f.state)) {
-        upload();
-        return;
-      }
-    if ("全部上传完成".equals(TransferEngine.message) && !TransferEngine.taskIds.isEmpty()) {
-      selectTab(2);
-      return;
-    }
-    if (prefs.getString("source_tree", null) == null) choose();
-    else scan();
   }
 
   final class TaskCard {
@@ -1207,9 +1463,17 @@ public final class MainActivity extends Activity {
       toast("任务正在运行");
       return;
     }
-    List<Store.Item> ready = store.files("state IN ('ready','uploading','upload_error','cleanup_error')");
-    if (ready.isEmpty()) {toast("先完成视频导入，再开始上传");selectTab(0);return;}
-    if (ready.stream().allMatch(f -> f.state.equals("cleanup_error"))) {start(null,false);return;}
+    List<Store.Item> ready =
+        store.files("state IN ('ready','uploading','upload_error','cleanup_error')");
+    if (ready.isEmpty()) {
+      toast("先完成视频导入，再开始上传");
+      selectTab(0);
+      return;
+    }
+    if (ready.stream().allMatch(f -> f.state.equals("cleanup_error"))) {
+      start(null, false);
+      return;
+    }
     TransferEngine engine = connectivity;
     if (!engine.connected()) {
       toast("请先连接网络");

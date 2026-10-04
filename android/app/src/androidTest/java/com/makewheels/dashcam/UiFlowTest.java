@@ -71,25 +71,32 @@ public class UiFlowTest {
             instrument.startActivitySync(
                 new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
     try {
-      shot("onboarding-connect");
-      clickDialog("下一步");
-      shot("onboarding-import");
-      clickDialog("下一步");
-      shot("onboarding-upload");
-      clickDialog("开始使用");
-      SystemClock.sleep(400);
-      // Dismiss a notification prompt if the test device presents it.
-      AccessibilityNodeInfo root = instrument.getUiAutomation().getRootInActiveWindow();
-      if (root != null)
-        for (AccessibilityNodeInfo node : root.findAccessibilityNodeInfosByText("Allow"))
-          node.performAction(AccessibilityNodeInfo.ACTION_CLICK);
-      instrument.runOnMainSync(() -> assertTrue(contains(activity.root, "选择视频文件夹")));
-      shot("home-connect");
+      instrument.runOnMainSync(
+          () -> {
+            assertTrue(contains(activity.root, "拷贝到手机"));
+            assertTrue(contains(activity.root, "上传云端"));
+            assertTrue(contains(activity.root, "OTG / TF 卡"));
+          });
+      shot("home-status");
+      boolean connected = activity.cardPresent;
+      instrument.runOnMainSync(
+          () -> {
+            activity.cardPresent = false;
+            activity.readerPresent = false;
+            activity.refresh();
+          });
+      shot("home-disconnected");
+      instrument.runOnMainSync(
+          () -> {
+            activity.cardPresent = connected;
+            activity.refresh();
+          });
+
       instrument.runOnMainSync(() -> activity.selectTab(1));
       instrument.waitForIdleSync();
       instrument.runOnMainSync(() -> assertTrue(contains(activity.root, "去导入视频")));
       shot("queue-empty");
-      instrument.runOnMainSync(() -> activity.selectTab(2));
+      instrument.runOnMainSync(() -> activity.selectTab(3));
       instrument.waitForIdleSync();
       SystemClock.sleep(300);
       instrument.runOnMainSync(
@@ -110,7 +117,7 @@ public class UiFlowTest {
             }
           });
       shot("cloud-videos");
-      instrument.runOnMainSync(() -> activity.selectTab(3));
+      instrument.runOnMainSync(() -> activity.selectTab(4));
       instrument.waitForIdleSync();
       instrument.runOnMainSync(() -> assertTrue(contains(activity.root, "手机副本进入回收站")));
       shot("settings");
@@ -154,6 +161,28 @@ public class UiFlowTest {
             activity.refresh();
           });
       shot("upload-progress");
+      TransferEngine.BUSY.set(false);
+      context.getSharedPreferences("settings", 0).edit().putBoolean("upload_paused", true).apply();
+      instrument.runOnMainSync(() -> activity.selectTab(2));
+      instrument.waitForIdleSync();
+      SystemClock.sleep(300);
+      instrument.runOnMainSync(
+          () -> {
+            activity.batchesLoading = false;
+            activity.batchStatus.setText("本机导入记录 · 云端历史可联网同步");
+            activity.renderBatches();
+          });
+      shot("batch-history");
+      instrument.runOnMainSync(
+          () -> {
+            MainActivity.BatchView batch = activity.new BatchView();
+            batch.id = "ui-review";
+            batch.time = "2026-10-04_21-35-08";
+            batch.local = activity.store.files("id=?", id);
+            activity.showBatch(batch);
+          });
+      shot("batch-detail");
+      instrument.runOnMainSync(() -> activity.homePause.setVisibility(View.GONE));
       activity.store.getWritableDatabase().delete("files", "id=?", new String[] {id});
     } finally {
       activity.store.getWritableDatabase().delete("files", "id=?", new String[] {id});

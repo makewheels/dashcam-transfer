@@ -44,7 +44,7 @@ def main():
                 date = stamp[:10]
                 import_id = str(uuid.uuid4())
                 object_key = f"videos/{stamp}_{import_id[:8]}/{name}"
-                created.append((sha, object_key))
+                created.append((sha, object_key, import_id))
                 metadata = {"owner": owner, "name": name, "size": len(data), "date": date,
                             "sha256": sha, "crc64": str(crc.crc ^ 1 if wrong else crc.crc),
                             "import_time": stamp, "import_id": import_id}
@@ -75,9 +75,11 @@ def main():
                     assert downloaded.status_code == 200 and hashlib.sha256(downloaded.content).hexdigest() == sha
                     assert requests.get(url.split("?", 1)[0], timeout=20).status_code == 403
                     assert any(video["_id"] == sha for video in api("/videos")["videos"])
-                    print("Real multipart resume, phone conflict, CRC verification, shared listing and signed download verified; anonymous denied")
+                    assert any(batch["id"] == import_id for batch in api("/batches")["batches"])
+                    assert [video["_id"] for video in api("/videos?batch=" + import_id)["videos"]] == [sha]
+                    print("Real multipart resume, CRC, shared batches, signed download and anonymous denial verified")
         finally:
-            for sha, key in created:
+            for sha, key, import_id in created:
                 doc = database.videos.find_one({"_id": sha})
                 if doc and doc.get("upload_id"):
                     try:
@@ -86,6 +88,7 @@ def main():
                         pass
                 bucket.delete_object(key)
                 database.videos.delete_one({"_id": sha})
+                database.import_batches.delete_one({"_id": import_id})
             client.close()
     print("Only invocation-owned smoke objects and records cleaned up")
 

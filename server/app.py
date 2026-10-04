@@ -42,6 +42,8 @@ def create_app(database=None, bucket=None, token=None):
         auth = oss2.Auth(os.environ["OSS_ACCESS_KEY_ID"], os.environ["OSS_ACCESS_KEY_SECRET"])
         bucket = oss2.Bucket(auth, os.environ["OSS_ENDPOINT"], os.environ["OSS_BUCKET"], connect_timeout=15)
     secret = token or os.environ["DASHCAM_APP_TOKEN"]
+    imports = database.import_batches
+    imports.create_index("import_time")
     videos = database.videos
     videos.create_index([("state", 1), ("created_at", -1)])
 
@@ -84,11 +86,58 @@ def create_app(database=None, bucket=None, token=None):
         except ValueError:
             return jsonify(error="invalid limit"), 400
         query = {"state": {"$in": ["uploaded", "missing"]}}
+        batch = request.args.get("batch")
+        if batch:
+            if re.fullmatch(r"[a-f0-9-]{36}", batch):
+                association = imports.find_one({"_id": batch})
+                query["$or"] = [{"import_id": batch}, {"_id": {"$in": association.get("file_ids", []) if association else []}}]
+            elif re.fullmatch(r"legacy:\d{4}-\d{2}-\d{2}", batch):
+                query.update({"date": batch[7:], "import_id": None})
+            else:
+                return jsonify(error="invalid batch"), 400
         cursor = request.args.get("before")
         if cursor:
             query["created_at"] = {"$lt": cursor}
         docs = list(videos.find(query).sort("created_at", -1).limit(limit))
         return jsonify(videos=[public(d) for d in docs], next=docs[-1]["created_at"] if len(docs) == limit else None)
+
+    @app.get("/batches")
+    @protected
+    def batches():
+        try:
+            limit = min(max(int(request.args.get("limit", 100)), 1), 200)
+        except ValueError:
+            return jsonify(error="invalid limit"), 400
+        pipeline = [
+            {"$match": {"state": {"$in": ["uploaded", "missing"]}}},
+            {"$group": {"_id": {"$ifNull": ["$import_id", {"$concat": ["legacy:", "$date"]}]},
+                        "import_time": {"$max": "$import_time"}, "date": {"$max": "$date"},
+                        "count": {"$sum": 1}, "size": {"$sum": "$size"},
+                        "missing": {"$sum": {"$cond": [{"$eq": ["$state", "missing"]}, 1, 0]}}}},
+            {"$addFields": {"sort": {"$concat": [{"$ifNull": ["$import_time", "$date"]}, "|", "$_id"]}}},
+        ]
+        # Keep associations separately so importing the same content again still has a batch.
+        related = list(imports.aggregate([
+            {"$lookup": {"from": "videos", "localField": "file_ids", "foreignField": "_id", "as": "linked"}},
+            {"$lookup": {"from": "videos", "localField": "_id", "foreignField": "import_id", "as": "primary"}},
+            {"$project": {"import_time": 1, "date": 1, "files": {"$setUnion": ["$linked", "$primary"]}}},
+            {"$unwind": "$files"}, {"$match": {"files.state": {"$in": ["uploaded", "missing"]}}},
+            {"$group": {"_id": "$_id", "import_time": {"$first": "$import_time"}, "date": {"$first": "$date"},
+                        "count": {"$sum": 1}, "size": {"$sum": "$files.size"},
+                        "missing": {"$sum": {"$cond": [{"$eq": ["$files.state", "missing"]}, 1, 0]}}}}
+        ]))
+        merged = {d["_id"]: d for d in videos.aggregate(pipeline)}
+        merged.update({d["_id"]: d for d in related})
+        docs = list(merged.values())
+        for doc in docs:
+            doc["sort"] = (doc.get("import_time") or doc.get("date") or "") + "|" + doc["_id"]
+        cursor = request.args.get("before")
+        docs = sorted((d for d in docs if not cursor or d["sort"] < cursor), key=lambda d: d["sort"], reverse=True)[:limit]
+        following = docs[-1]["sort"] if len(docs) == limit else None
+        for doc in docs:
+            doc["id"] = doc.pop("_id")
+            doc.pop("sort")
+        return jsonify(batches=docs, next=following)
 
     @app.post("/uploads/start")
     @protected
@@ -119,10 +168,14 @@ def create_app(database=None, bucket=None, token=None):
         if import_id and not re.fullmatch(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}", import_id):
             return jsonify(error="invalid import identity"), 400
         import_id = import_id or str(uuid.uuid4())
+        def remember_import():
+            imports.update_one({"_id": import_id}, {"$setOnInsert": {"import_time": import_time, "date": date},
+                                                      "$addToSet": {"file_ids": sha}}, upsert=True)
         existing = videos.find_one({"_id": sha})
         if existing and (existing["size"] != size or existing["crc64"] != crc):
             return jsonify(error="file identity mismatch"), 409
         if existing and existing["state"] == "uploaded" and head_valid(existing):
+            remember_import()
             return jsonify(uploaded=True, video=public(existing))
         owner = str(data.get("owner", ""))
         if not re.fullmatch(r"[a-zA-Z0-9-]{16,80}", owner):
@@ -142,6 +195,7 @@ def create_app(database=None, bucket=None, token=None):
             return_document=ReturnDocument.AFTER)
         if not doc:
             return jsonify(error="another phone is uploading; retry later"), 409
+        remember_import()
         if not doc.get("upload_id"):
             upload_id = bucket.init_multipart_upload(doc["object_key"], headers={"x-oss-meta-sha256": sha}).upload_id
             videos.update_one({"_id": sha, "owner": owner}, {"$set": {"upload_id": upload_id}})

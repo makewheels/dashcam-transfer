@@ -155,3 +155,52 @@ def test_same_second_imports_are_isolated_and_bad_timestamps_rejected(setup):
     for timestamp in ["2026-10-04_25-10-10", "2026-02-30_10-10-10", "../../bad", "2026-10-03_10-10-10"]:
         data["import_time"] = timestamp
         assert c.post("/uploads/start", json=data, headers=AUTH).status_code == 400
+
+
+def test_batch_history_pagination_detail_and_legacy_records(setup):
+    c, db, b = setup
+    assert c.get('/batches').status_code == 401
+    ids = ['11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222']
+    for index, batch in enumerate(ids):
+        data = metadata()
+        data.update(_id=str(index), import_id=batch, import_time=f'2026-10-04_{8+index:02}-30-00', state='uploaded', created_at=str(index))
+        db.videos.insert_one(data)
+    first = c.get('/batches?limit=1', headers=AUTH).json
+    assert first['batches'][0]['id'] == ids[1]
+    assert first['batches'][0]['count'] == 1
+    second = c.get('/batches?limit=1&before='+first['next'], headers=AUTH).json
+    assert second['batches'][0]['id'] == ids[0]
+    assert len(c.get('/videos?batch='+ids[0], headers=AUTH).json['videos']) == 1
+    db.videos.insert_one(dict(metadata(), _id='legacy', state='missing', created_at='0'))
+    db.videos.insert_one(dict(metadata(), _id='pending', state='uploading', created_at='1'))
+    legacy = c.get('/videos?batch=legacy:2026-10-04', headers=AUTH).json['videos']
+    assert [d['_id'] for d in legacy] == ['legacy']
+    batches = c.get('/batches', headers=AUTH).json['batches']
+    assert sum(d['count'] for d in batches) == 3
+    assert next(d for d in batches if d['id'].startswith('legacy:'))['missing'] == 1
+    assert c.get('/videos?batch=invalid', headers=AUTH).status_code == 400
+
+
+def test_reimported_content_is_visible_in_both_batches_without_uploading_again(setup):
+    import uuid
+    c, db, b = setup
+    data = metadata()
+    data.update(import_id=str(uuid.uuid4()), import_time='2026-10-04_08-00-00')
+    c.post('/uploads/start', json=data, headers=AUTH)
+    b.parts = [SimpleNamespace(part_number=1, size=data['size'], etag='part')]
+    b.head = SimpleNamespace(content_length=data['size'], headers={'x-oss-hash-crc64ecma': data['crc64']})
+    assert c.post(f"/uploads/{data['sha256']}/complete", json={'owner':data['owner']}, headers=AUTH).json['verified']
+    first = data['import_id']
+    data.update(import_id=str(uuid.uuid4()), import_time='2026-10-04_20-00-00')
+    assert c.post('/uploads/start', json=data, headers=AUTH).json['uploaded']
+    # Existing 0.2 files may predate the association collection. Keep them when
+    # another file creates a partial association for the same batch.
+    old = dict(db.videos.find_one({'_id': data['sha256']}))
+    old.update(_id='older-primary-file', sha256='older-primary-file', created_at='0')
+    db.videos.insert_one(old)
+    summaries = c.get('/batches', headers=AUTH).json['batches']
+    assert {d['id'] for d in summaries} == {first, data['import_id']}
+    for batch in summaries:
+        assert batch['count'] == (2 if batch['id'] == first else 1)
+        assert c.get('/videos?batch='+batch['id'], headers=AUTH).json['videos'][0]['sha256'] == data['sha256']
+    assert b.merges == 1

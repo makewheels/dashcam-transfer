@@ -86,7 +86,8 @@ public class StorageAndMigrationTest {
       while (!activity.cardPresent && SystemClock.elapsedRealtime() < deadline)
         SystemClock.sleep(100);
       assertTrue("Mount notification missing", activity.cardPresent);
-      i.runOnMainSync(() -> assertTrue(activity.guideTitle.getText().toString().contains("发现读卡器")));
+      i.runOnMainSync(
+          () -> assertTrue(activity.otgState.getText().toString().contains("TF 卡已检测到")));
     } finally {
       shell(i, "sm mount " + volumeId);
       i.runOnMainSync(activity::finish);
