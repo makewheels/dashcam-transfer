@@ -4,6 +4,7 @@ import socket
 import subprocess
 import tempfile
 import time
+from pathlib import Path
 
 from pymongo import MongoClient
 
@@ -26,7 +27,7 @@ def main():
             else:
                 raise RuntimeError("Isolated MongoDB did not start")
             env = dict(os.environ, DASHCAM_TEST_MONGO_URI=f"mongodb://127.0.0.1:{port}")
-            result = subprocess.run(["uv", "run", "pytest", "-q"], env=env)
+            result = subprocess.run(["uv", "run", "--locked", "pytest", "-q"], env=env, cwd=Path(__file__).resolve().parents[1])
             return result.returncode
         finally:
             client.close()

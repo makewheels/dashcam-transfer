@@ -8,6 +8,7 @@ import re
 import time
 import uuid
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from functools import wraps
 
 import oss2
@@ -54,7 +55,7 @@ def create_app(database=None, bucket=None, token=None):
         return wrapper
 
     def public(doc):
-        return {k: doc.get(k) for k in ("_id", "name", "size", "date", "sha256", "crc64", "state", "created_at")}
+        return {k: doc.get(k) for k in ("_id", "name", "size", "date", "sha256", "crc64", "state", "created_at", "import_time", "import_id")}
 
     def head_valid(doc):
         try:
@@ -103,6 +104,21 @@ def create_app(database=None, bucket=None, token=None):
                 or not name or len(name) > 240 or "/" in name or "\\" in name
                 or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date)):
             return jsonify(error="invalid file metadata"), 400
+        import_time = str(data.get("import_time", ""))
+        import_id = str(data.get("import_id", ""))
+        if import_time:
+            try:
+                parsed = datetime.strptime(import_time, "%Y-%m-%d_%H-%M-%S")
+                if parsed.strftime("%Y-%m-%d_%H-%M-%S") != import_time or import_time[:10] != date:
+                    raise ValueError("timestamp mismatch")
+            except ValueError:
+                return jsonify(error="invalid import timestamp"), 400
+        else:
+            # Legacy clients lack an import time; choose once at session creation.
+            import_time = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d_%H-%M-%S")
+        if import_id and not re.fullmatch(r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}", import_id):
+            return jsonify(error="invalid import identity"), 400
+        import_id = import_id or str(uuid.uuid4())
         existing = videos.find_one({"_id": sha})
         if existing and (existing["size"] != size or existing["crc64"] != crc):
             return jsonify(error="file identity mismatch"), 409
@@ -112,7 +128,8 @@ def create_app(database=None, bucket=None, token=None):
         if not re.fullmatch(r"[a-zA-Z0-9-]{16,80}", owner):
             return jsonify(error="invalid owner"), 400
         doc = {"_id": sha, "sha256": sha, "crc64": crc, "size": size, "name": name,
-               "date": date, "object_key": f"videos/{date}/{sha[:16]}/{name}",
+               "date": date, "import_time": import_time, "import_id": import_id,
+               "object_key": f"videos/{import_time}_{import_id[:8]}/{name}",
                "created_at": datetime.now(timezone.utc).isoformat() + "-" + uuid.uuid4().hex,
                "state": "waiting", "lease_until": 0}
         try:

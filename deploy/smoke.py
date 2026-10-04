@@ -5,6 +5,7 @@ import os
 import tempfile
 import uuid
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 
 import oss2
@@ -39,11 +40,14 @@ def main():
                 crc(data)
                 owner = str(uuid.uuid4())
                 name = "transfer-smoke-" + uuid.uuid4().hex + ".mp4"
-                date = datetime.now().strftime("%Y-%m-%d")
-                object_key = f"videos/{date}/{sha[:16]}/{name}"
+                stamp = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d_%H-%M-%S")
+                date = stamp[:10]
+                import_id = str(uuid.uuid4())
+                object_key = f"videos/{stamp}_{import_id[:8]}/{name}"
                 created.append((sha, object_key))
                 metadata = {"owner": owner, "name": name, "size": len(data), "date": date,
-                            "sha256": sha, "crc64": str(crc.crc ^ 1 if wrong else crc.crc)}
+                            "sha256": sha, "crc64": str(crc.crc ^ 1 if wrong else crc.crc),
+                            "import_time": stamp, "import_id": import_id}
                 start = api("/uploads/start", metadata)
                 size = start["part_size"]
                 assert not start["uploaded"]

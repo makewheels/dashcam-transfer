@@ -121,3 +121,37 @@ def test_unexpected_part_number_rejected(setup):
     c.post("/uploads/start", json=data, headers=AUTH)
     for number in [0, 2, True, "1"]:
         assert c.post(f"/uploads/{data['sha256']}/part", json={"owner": data["owner"], "number": number}, headers=AUTH).status_code == 400
+
+
+def test_import_timestamps_keep_separate_folders_and_resume_stable(setup):
+    import uuid
+    c, db, b = setup
+    keys = []
+    for clock, content in [("2026-10-04_08-30-01", b"morning"), ("2026-10-04_20-42-09", b"evening")]:
+        data = metadata()
+        data.update(sha256=hashlib.sha256(content).hexdigest(), import_time=clock, import_id=str(uuid.uuid4()))
+        assert c.post("/uploads/start", json=data, headers=AUTH).status_code == 200
+        key = db.videos.find_one({"_id": data["sha256"]})["object_key"]
+        assert key.startswith(f"videos/{clock}_")
+        assert key.endswith("/video.mp4")
+        keys.append(key)
+        data["import_time"] = "2026-10-04_23-59-59"
+        data["import_id"] = str(uuid.uuid4())
+        assert c.post("/uploads/start", json=data, headers=AUTH).status_code == 200
+        assert db.videos.find_one({"_id": data["sha256"]})["object_key"] == key
+    assert keys[0] != keys[1]
+
+
+def test_same_second_imports_are_isolated_and_bad_timestamps_rejected(setup):
+    import uuid
+    c, db, b = setup
+    for payload in [b"one", b"two"]:
+        data = metadata()
+        data.update(sha256=hashlib.sha256(payload).hexdigest(), import_time="2026-10-04_10-10-10", import_id=str(uuid.uuid4()))
+        assert c.post("/uploads/start", json=data, headers=AUTH).status_code == 200
+    keys = [d["object_key"] for d in db.videos.find()]
+    assert len(set(keys)) == 2
+    data = metadata()
+    for timestamp in ["2026-10-04_25-10-10", "2026-02-30_10-10-10", "../../bad", "2026-10-03_10-10-10"]:
+        data["import_time"] = timestamp
+        assert c.post("/uploads/start", json=data, headers=AUTH).status_code == 400

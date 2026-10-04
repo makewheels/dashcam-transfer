@@ -6,9 +6,10 @@ android {
     defaultConfig {
         applicationId 'com.makewheels.dashcam'
         minSdk 29
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         targetSdk 35
         versionCode Integer.parseInt(System.getenv('DASHCAM_VERSION_CODE') ?: '1')
-        versionName System.getenv('DASHCAM_VERSION_NAME') ?: '0.1.0'
+        versionName System.getenv('DASHCAM_VERSION_NAME') ?: '0.2.0'
         resValue 'string', 'app_name', '行车转存'
         buildConfigField 'String', 'API_URL', JsonOutput.toJson(System.getenv('DASHCAM_API_URL') ?: '')
         // Scoped application access credential, not an Alibaba Cloud access key.
@@ -42,4 +43,6 @@ dependencies {
     implementation 'androidx.documentfile:documentfile:1.0.1'
     implementation 'androidx.work:work-runtime:2.10.1'
     testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
 }
