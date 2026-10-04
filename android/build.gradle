@@ -1,0 +1,7 @@
+plugins { id 'com.android.application' version '8.7.3' apply false }
+def buildRoot = System.getenv('DASHCAM_BUILD_ROOT')
+if (buildRoot) {
+    allprojects {
+        layout.buildDirectory.set(new File(buildRoot, project.name))
+    }
+}

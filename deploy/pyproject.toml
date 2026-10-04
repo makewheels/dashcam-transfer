@@ -1,0 +1,5 @@
+[project]
+name = "dashcam-transfer-deploy"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["alibabacloud-fc20230330>=4,<5", "oss2>=2.19,<3", "requests>=2.32,<3"]

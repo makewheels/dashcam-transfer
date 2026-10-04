@@ -1,0 +1,45 @@
+import groovy.json.JsonOutput
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.makewheels.dashcam'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'com.makewheels.dashcam'
+        minSdk 29
+        targetSdk 35
+        versionCode Integer.parseInt(System.getenv('DASHCAM_VERSION_CODE') ?: '1')
+        versionName System.getenv('DASHCAM_VERSION_NAME') ?: '0.1.0'
+        resValue 'string', 'app_name', '行车转存'
+        buildConfigField 'String', 'API_URL', JsonOutput.toJson(System.getenv('DASHCAM_API_URL') ?: '')
+        // Scoped application access credential, not an Alibaba Cloud access key.
+        buildConfigField 'String', 'APP_TOKEN', JsonOutput.toJson(System.getenv('DASHCAM_APP_TOKEN') ?: '')
+    }
+    signingConfigs {
+        release {
+            if (System.getenv('DASHCAM_KEYSTORE')) {
+                storeFile file(System.getenv('DASHCAM_KEYSTORE'))
+                storePassword System.getenv('DASHCAM_KEYSTORE_PASSWORD')
+                keyAlias 'transfer'
+                keyPassword System.getenv('DASHCAM_KEYSTORE_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            applicationIdSuffix '.dev'
+            versionNameSuffix '-dev'
+            resValue 'string', 'app_name', '行车转存（开发）'
+        }
+        release {
+            if (System.getenv('DASHCAM_KEYSTORE')) signingConfig signingConfigs.release
+            minifyEnabled false
+        }
+    }
+    buildFeatures { buildConfig true }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}
+dependencies {
+    implementation 'androidx.documentfile:documentfile:1.0.1'
+    implementation 'androidx.work:work-runtime:2.10.1'
+    testImplementation 'junit:junit:4.13.2'
+}
