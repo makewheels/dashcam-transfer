@@ -345,3 +345,7 @@ Android增加开发applicationIdSuffix `.dev`、开发标签，生产app ID不�
 - 文案：「移入手机回收站」→「删除手机副本」，确认框说明副本存于应用私有目录、云端与TF卡不受影响。
 - CopyFlowTest的finally清理适配文件路径dest。设备测试发现本机模拟器缺sdcard镜像导致CardInventoryTest/UiFlowTest失败（0.4.3在本机同样失败，非代码回归，CI环境有sdcard而本地AVD未生成）；修复后以CI设备测试为准（workflow_dispatch手动触发）。
 - debug构建/lint/单测通过。CI设备测试37326596860手动触发，8项全绿（真实复制走新私有路径）。源码a4c5fbf，发行37327351999成功；正式APK 5356680字节、SHA-256 `5136403fdcf88de1b5162019f61331c78c5e3cbda96f8012dcf6a0c80f62c699`，0.5.0/code 5000、同签名；生产更新接口核对一致并完整下载验证；Release标题正确、无附件。飞书APK+说明发送成功，message_id `om_x100b630fe601f0a4c3b51e0253e3bc2`。期间本机到阿里云FC链路多次SSL握手超时（baidu/github正常），用curl完成验证；本机模拟器sdcard.img缺失导致设备测试失败已定位（CI环境正常），AVD需mksdcard手动创建。
+
+## 0.5.1 启动必检更新（2026-10-06）
+
+用户要求启动即检测新版本并弹窗。原有每日一次限流（update_checked）移除：每次启动静默检查（checkUpdates(true)），发现新版本即弹「下载并安装」，已是最新不提示。checkUpdates的弹窗/下载/安装逻辑不变。debug构建/lint/单测通过。版本0.5.1/code 5001。

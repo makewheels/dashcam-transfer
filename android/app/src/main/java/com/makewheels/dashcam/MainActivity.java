@@ -100,8 +100,8 @@ public final class MainActivity extends Activity {
     registerCellularDisplay();
     checkStorage(false);
     prefs.edit().putBoolean("intro_seen", true).apply();
-    if (System.currentTimeMillis() - prefs.getLong("update_checked", 0) > 24 * 60 * 60 * 1000L)
-      checkUpdates(true);
+    // Check on every launch; a newer release pops the update dialog, otherwise nothing shows.
+    checkUpdates(true);
   }
 
   int dp(int n) {
@@ -1861,7 +1861,6 @@ public final class MainActivity extends Activity {
         () -> {
           try {
             JSONObject version = Api.call("GET", "/updates/android", null);
-            prefs.edit().putLong("update_checked", System.currentTimeMillis()).apply();
             if (version.optInt("version_code") <= BuildConfig.VERSION_CODE) {
               if (!quiet) runOnUiThread(() -> toast("当前已是最新版本"));
               return;
