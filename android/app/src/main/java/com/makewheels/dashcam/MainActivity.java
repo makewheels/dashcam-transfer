@@ -43,6 +43,12 @@ public final class MainActivity extends Activity {
   boolean progressWasVisible = false, awaitingStart = false;
   String requestedKind = "";
   long requestedGeneration = Long.MIN_VALUE;
+  long storageCheckedAt = 0, inventoryEpoch = 0;
+  boolean inventoryLoading = false, inventoryWasBusy = false;
+  long inventoryJob = Long.MIN_VALUE;
+  String inventoryOutcome = "";
+  String inventorySummary = "", inventorySignature = "";
+  AlertDialog inventoryDialog;
   JSONArray remoteBatches = new JSONArray();
   boolean batchesLoading = false, readerPresent = false;
   String batchNext = null;
@@ -773,7 +779,8 @@ public final class MainActivity extends Activity {
     super.onResume();
     resumed = true;
     handler.post(tick);
-    checkStorage(false);
+    storageCheckedAt = 0;
+    checkStorage(true);
     refresh();
   }
 
@@ -799,6 +806,15 @@ public final class MainActivity extends Activity {
       new Runnable() {
         public void run() {
           if (!resumed) return;
+          boolean busy = TransferEngine.BUSY.get();
+          if (inventoryWasBusy && !busy) storageCheckedAt = 0;
+          inventoryWasBusy = busy;
+          if (inventoryJob != TransferEngine.generation || !inventoryOutcome.equals(TransferEngine.outcome)) {
+            inventoryJob = TransferEngine.generation;
+            inventoryOutcome = TransferEngine.outcome;
+            if (!busy) storageCheckedAt = 0;
+          }
+          if (SystemClock.elapsedRealtime() - storageCheckedAt >= 5000) checkStorage(true);
           refresh();
           handler.postDelayed(this, 1000);
         }
@@ -809,6 +825,7 @@ public final class MainActivity extends Activity {
         public void onReceive(Context c, Intent i) {
           if (!Intent.ACTION_MEDIA_MOUNTED.equals(i.getAction()) && cardPresent) {
             cardPresent = false;
+            clearInventory();
             deviceBanner.setVisibility(View.GONE);
             toast("读卡器已断开，重新连接后可继续导入");
             if (TransferEngine.BUSY.get()
@@ -850,6 +867,7 @@ public final class MainActivity extends Activity {
   }
 
   void checkStorage(boolean notify) {
+    storageCheckedAt = SystemClock.elapsedRealtime();
     boolean before = cardPresent;
     cardPresent = false;
     cardName = "";
@@ -874,7 +892,99 @@ public final class MainActivity extends Activity {
     } else if (notify && !cardPresent && before) {
       toast("读卡器已断开，重新连接后可继续导入");
     }
+    if (!cardPresent) {
+      if (before || !inventorySummary.isEmpty()) clearInventory();
+      if (before && TransferEngine.BUSY.get()
+          && Arrays.asList("import", "delete-source").contains(TransferEngine.taskKind)) {
+        TransferEngine.pauseReason = "TF 卡已断开，重新连接后继续";
+        TransferEngine.stopped = true;
+      }
+    } else inspectCard(notify);
     refresh();
+  }
+
+  void clearInventory() {
+    inventoryEpoch++;
+    inventorySummary = "";
+    inventorySignature = "";
+    if (inventoryDialog != null) inventoryDialog.dismiss();
+  }
+
+  void showInventory(String signature, String title, String detail, boolean canCopy) {
+    if (!resumed || TransferEngine.BUSY.get() || scanning || awaitingStart
+        || signature.equals(inventorySignature)) return;
+    inventorySignature = signature;
+    if (inventoryDialog != null) inventoryDialog.dismiss();
+    AlertDialog.Builder dialog = new AlertDialog.Builder(this).setTitle(title).setMessage(detail)
+        .setNegativeButton("稍后", null);
+    if (canCopy) dialog.setPositiveButton("拷贝到手机", (d, w) -> scan());
+    else if (title.equals("手机空间不足")) dialog.setPositiveButton("知道了", null);
+    else dialog.setPositiveButton("选择视频文件夹", (d, w) -> choose());
+    inventoryDialog = dialog.create();
+    inventoryDialog.show();
+  }
+
+  void inspectCard(boolean notify) {
+    if (!cardPresent || inventoryLoading || TransferEngine.BUSY.get() || scanning || awaitingStart)
+      return;
+    String tree = prefs.getString("source_tree", "");
+    if (tree.isEmpty()) {
+      inventorySummary = "请先选择视频文件夹，授权后自动统计数量和大小";
+      if (notify) showInventory("choose", "已检测到 TF 卡", inventorySummary, false);
+      return;
+    }
+    final long epoch = inventoryEpoch;
+    inventoryLoading = true;
+    if (inventorySummary.isEmpty()) inventorySummary = "正在检查视频数量和大小…";
+    executor.execute(() -> {
+      int count = 0;
+      long size = 0;
+      String signature, error = null;
+      try {
+        DocumentFile directory = DocumentFile.fromTreeUri(this, Uri.parse(tree));
+        if (directory == null || !directory.exists() || !directory.canRead())
+          throw new IOException("记住的目录暂时无法读取，请确认是这张 TF 卡，或重新选择视频文件夹。");
+        ArrayList<String> entries = new ArrayList<>();
+        for (DocumentFile file : directory.listFiles()) {
+          if (!file.isFile()) continue;
+          long length = file.length();
+          count++;
+          size += length;
+          entries.add(file.getUri() + ":" + length + ":" + file.lastModified());
+        }
+        Collections.sort(entries);
+        if (!directory.exists() || !directory.canRead()) throw new IOException("TF 卡已断开");
+        signature = tree + "|" + entries.toString();
+      } catch (Exception failure) {
+        error = TransferEngine.readable(failure);
+        signature = tree + "|unavailable";
+      }
+      final int videos = count;
+      final long bytes = size;
+      final String resultSignature = signature, resultError = error;
+      runOnUiThread(() -> {
+        inventoryLoading = false;
+        if (isDestroyed() || epoch != inventoryEpoch || !cardPresent
+            || !tree.equals(prefs.getString("source_tree", ""))) return;
+        inventorySummary = resultError == null
+            ? "所选目录有 " + videos + " 个视频 · " + TransferEngine.bytes(bytes)
+            : resultError;
+        refresh();
+        if (!notify) return;
+        if (resultError != null) {
+          showInventory(resultSignature, "TF 卡目录需要确认", inventorySummary, false);
+        } else if (videos == 0) {
+          showInventory(resultSignature, "TF 卡视频已更新", "所选目录没有视频。可以更换文件夹，或继续上传手机里的视频。", false);
+        } else {
+          long free = TransferEngine.free(this);
+          boolean enough = free >= bytes + TransferEngine.RESERVE;
+          String detail = SourcePath.display(this, Uri.parse(tree)) + "\n\n" + inventorySummary
+              + "\n手机可用 " + TransferEngine.bytes(free) + "，拷贝后需保留 5 GB。"
+              + (enough ? "\n点「拷贝到手机」开始，卡上原视频会保留。" : "\n空间不足，请先清理手机空间。");
+          showInventory(resultSignature + "|" + enough, enough ? "TF 卡视频已检测到" : "手机空间不足", detail, enough);
+        }
+      });
+    });
   }
 
   List<Store.Item> local() {
@@ -941,7 +1051,7 @@ public final class MainActivity extends Activity {
     boolean wifi = connectivity.wifi(), connected = connectivity.connected();
     otgState.setText(cardPresent ? "TF 卡已检测到" : readerPresent ? "读卡器已连接" : "未检测到读卡器");
     otgState.setTextColor(cardPresent ? Ui.GREEN : Ui.INK);
-    otgHelp.setText(cardPresent ? cardName : readerPresent ? "请插入 TF 卡或检查挂载" : "请插入 OTG 读卡器");
+    otgHelp.setText(cardPresent ? cardName + (inventorySummary.isEmpty() ? "" : "\n" + inventorySummary) : readerPresent ? "请插入 TF 卡或检查挂载" : "请插入 OTG 读卡器");
     copyButton.setEnabled(!busy && !scanning);
     copyButton.setAlpha(busy || scanning ? .5f : 1);
     copyButton.setText(scanning ? "正在检查视频…" : "拷贝到手机");
@@ -1463,6 +1573,8 @@ public final class MainActivity extends Activity {
                 tree,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
         prefs.edit().putString("source_tree", tree.toString()).apply();
+        clearInventory();
+        checkStorage(true);
         refresh();
       } catch (Exception e) {
         toast("目录授权失败，请重新选择可读写的视频目录");

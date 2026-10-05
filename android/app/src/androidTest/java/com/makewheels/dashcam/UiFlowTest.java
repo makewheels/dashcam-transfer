@@ -23,6 +23,13 @@ public class UiFlowTest {
   void shot(String name) throws Exception {
     instrument.waitForIdleSync();
     SystemClock.sleep(3500);
+    AccessibilityNodeInfo window = instrument.getUiAutomation().getRootInActiveWindow();
+    if (window != null) {
+      for (AccessibilityNodeInfo node : window.findAccessibilityNodeInfosByText("稍后"))
+        node.performAction(AccessibilityNodeInfo.ACTION_CLICK);
+    }
+    instrument.waitForIdleSync();
+    SystemClock.sleep(300);
     Bitmap bitmap = instrument.getUiAutomation().takeScreenshot();
     assertNotNull(bitmap);
     try (FileOutputStream out =

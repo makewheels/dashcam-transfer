@@ -54,9 +54,13 @@ public class CopyFlowTest {
             i.startActivitySync(
                 new Intent(c, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
     try {
+      long inventoryDeadline = SystemClock.elapsedRealtime() + 10000;
+      while (activity.inventorySignature.isEmpty() && SystemClock.elapsedRealtime() < inventoryDeadline)
+        SystemClock.sleep(100);
       i.runOnMainSync(
           () -> {
             ((ScrollView) activity.pages[0]).scrollTo(0, 2000);
+            if (activity.inventoryDialog != null) activity.inventoryDialog.dismiss();
             activity.copyButton.performClick();
           });
       long deadline = SystemClock.elapsedRealtime() + 20000;
