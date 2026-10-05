@@ -36,12 +36,7 @@ jobs:
           disk-size: 10G
           ram-size: 2048M
           avd-name: transfer-review
-          script: |
-            adb -s emulator-5554 shell sm set-virtual-disk true
-            disk_id="$(adb -s emulator-5554 shell sm list-disks | head -n 1 | tr -d '\r')"
-            test -n "$disk_id"
-            adb -s emulator-5554 shell sm partition "$disk_id" public
-            python3 deploy/check_android_device.py emulator-5554 "$RUNNER_TEMP/transfer-device-$GITHUB_RUN_ID/screenshots"
+          script: python3 deploy/check_android_device.py emulator-5554 "$RUNNER_TEMP/transfer-device-$GITHUB_RUN_ID/screenshots"
       - name: 保存空配置测试界面
         if: always()
         uses: actions/upload-artifact@v4

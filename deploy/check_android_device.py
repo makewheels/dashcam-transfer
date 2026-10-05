@@ -16,6 +16,15 @@ def main():
     env = dict(os.environ)
     sdk = Path(env.get("ANDROID_HOME") or env["ANDROID_SDK_ROOT"])
     adb = [str(sdk / "platform-tools/adb"), "-s", serial]
+    subprocess.run(adb + ["shell", "sm", "set-virtual-disk", "true"], check=True)
+    deadline = time.monotonic() + 30
+    disks = []
+    while not disks and time.monotonic() < deadline:
+        disks = subprocess.check_output(adb + ["shell", "sm", "list-disks"], text=True).split()
+        if not disks: time.sleep(1)
+    if not disks:
+        raise RuntimeError("Virtual removable storage missing")
+    subprocess.run(adb + ["shell", "sm", "partition", disks[0], "public"], check=True)
     with tempfile.TemporaryDirectory(prefix="transfer-device-check-") as directory:
         env["DASHCAM_BUILD_ROOT"] = str(Path(directory) / "build")
         subprocess.run([str(root / "android/gradlew"), "--project-cache-dir", str(Path(directory) / "cache"),
