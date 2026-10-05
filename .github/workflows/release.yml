@@ -17,6 +17,7 @@ jobs:
       - uses: actions/checkout@v4
         # 浅克隆会丢失 annotated tag 对象，读不到 tag 说明；完整取回。
         with: {fetch-depth: 0}
+      - run: git fetch --tags --force origin
       - uses: actions/setup-java@v4
         with: {distribution: temurin, java-version: '21'}
       - uses: astral-sh/setup-uv@v6
