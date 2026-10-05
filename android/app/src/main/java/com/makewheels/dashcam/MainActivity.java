@@ -899,7 +899,7 @@ public final class MainActivity extends Activity {
         TransferEngine.pauseReason = "TF 卡已断开，重新连接后继续";
         TransferEngine.stopped = true;
       }
-    } else inspectCard(notify);
+    } else if (resumed) inspectCard(notify);
     refresh();
   }
 
