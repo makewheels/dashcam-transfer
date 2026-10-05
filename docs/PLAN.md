@@ -318,10 +318,11 @@ Android增加开发applicationIdSuffix `.dev`、开发标签，生产app ID不�
 - checkout fetch-depth:0仍取不到annotated tag对象（Release标题两次落到commit信息），已在workflow加`git fetch --tags --force`（723935d），v0.4.7标题手动修正，下版自动生效。
 - todo（用户提出，下一版处理）：上传页网络状态区分Wi-Fi/移动网络/5G显示不同图标与颜色，字体加大。
 
-## 0.4.8 网络状态可视化（2026-10-05，发行中）
+## 0.4.8 网络状态可视化（2026-10-05，已发行并飞书交付）
 
 用户要求处理上面的todo：上传页网络状态区分类型、图标、颜色，字体加大。
 
 - 上传页顶部改为网络状态条：图标+16sp加粗文字+浅色圆角底。Wi-Fi=绿色wifi图标；蜂窝=蓝色cell信号柱图标（Ui.Icon新增cell）；未联网=灰色。蜂窝文字显示「5G 网络」/「4G 网络」/「移动网络」并附「流量上传需手动确认」。
 - 5G识别：Android 11+用PhoneStateListener.LISTEN_DISPLAY_INFO_CHANGED（TelephonyDisplayInfo，无需权限），NETWORK_TYPE_NR判定5G；Android 10显示「移动网络」。onDestroy反注册。isNrAdvanced在当前编译环境不可用，仅用NETWORK_TYPE_NR（5G-Advanced细分不区分）。
-- debug构建/lint/单测通过；模拟器验证Wi-Fi与未联网两态渲染，蜂窝与5G文案待真机（模拟器无SIM）。版本0.4.8/code 4008。
+- debug构建/lint/单测通过；模拟器验证Wi-Fi与未联网两态渲染（飞行模式实测灰色未联网态），蜂窝与5G文案待真机（模拟器无SIM）。
+- 源码18bf5cf，发行37315482608成功；正式APK 5357152字节、SHA-256 `c81877037446a0ef7aab687b5b5dec96b4d027d93c2286ce2a6b9b2ffb9bbfe1`，0.4.8/code 4008、同签名；生产更新接口核对一致并完整下载验证；Release标题「0.4.8 网络状态一目了然」——workflow的`git fetch --tags --force`修复生效，annotated tag说明首次被CI正确读取，无附件。飞书APK+说明发送成功，message_id `om_x100b630e7585c4a0c45626003c12fa1`。期间github.com两次间歇443超时，标签重推后成功。
