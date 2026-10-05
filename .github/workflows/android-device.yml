@@ -10,9 +10,6 @@ jobs:
   device:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      ANDROID_AVD_HOME: ${{ runner.temp }}/transfer-device-${{ github.run_id }}/avd
-      ANDROID_USER_HOME: ${{ runner.temp }}/transfer-device-${{ github.run_id }}/user
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -25,7 +22,10 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: 准备隔离虚拟设备
         run: |
-          mkdir -p "$ANDROID_AVD_HOME" "$ANDROID_USER_HOME"
+          device_root="$RUNNER_TEMP/transfer-device-$GITHUB_RUN_ID"
+          mkdir -p "$device_root/avd" "$device_root/user"
+          echo "ANDROID_AVD_HOME=$device_root/avd" >> "$GITHUB_ENV"
+          echo "ANDROID_USER_HOME=$device_root/user" >> "$GITHUB_ENV"
           sudo chmod 666 /dev/kvm
       - uses: reactivecircus/android-emulator-runner@v2
         with:
