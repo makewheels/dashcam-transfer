@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="440" height="220" viewBox="0 0 440 220">
+<rect width="440" height="220" fill="#f5f7fb"/>
+<defs><clipPath id="circle"><circle cx="54" cy="54" r="36"/></clipPath><clipPath id="square"><rect x="18" y="18" width="72" height="72" rx="17"/></clipPath><g id="layers"><rect x="0" y="0" width="108" height="108" fill="#167D6E"/><path fill="white" d="M30,35h36v38H30zM66,45l16,-9v36l-16,-9z"/></g></defs>
+<g transform="translate(0 0) scale(2)"><g clip-path="url(#circle)"><use href="#layers"/></g></g>
+<g transform="translate(220 0) scale(2)"><g clip-path="url(#square)"><use href="#layers"/></g></g>
+</svg>
