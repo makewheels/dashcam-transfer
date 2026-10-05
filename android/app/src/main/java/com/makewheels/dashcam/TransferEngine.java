@@ -19,12 +19,15 @@ final class TransferEngine {
   static volatile String pauseReason = "已暂停，可继续";
   static volatile String message = "准备就绪", activeId = "";
   static volatile long done = 0, total = 0, started = 0, phaseBase = 0;
-  static volatile String taskKind = "";
+  static volatile String taskKind = "", outcome = "idle";
+  static volatile long generation = 0;
   static volatile List<String> taskIds = Collections.emptyList();
   static volatile TransferProgress.Phase phase = TransferProgress.Phase.IDLE;
 
   void begin(String kind, List<Store.Item> items) {
     taskKind = kind;
+    generation = SystemClock.elapsedRealtimeNanos();
+    outcome = "running";
     ArrayList<String> ids = new ArrayList<>();
     for (Store.Item item : items) ids.add(item.id);
     taskIds = Collections.unmodifiableList(ids);
@@ -220,7 +223,12 @@ final class TransferEngine {
         store.update(item.id, v);
       }
     }
-    int retained = store.files("source_deleted=0 AND tree=? AND batch IN (SELECT id FROM batches WHERE ready=1)", tree).size();
+    int retained =
+        store
+            .files(
+                "source_deleted=0 AND tree=? AND batch IN (SELECT id FROM batches WHERE ready=1)",
+                tree)
+            .size();
     message = "卡上删除已处理 " + (candidates.size() - retained) + " 个，保留 " + retained + " 个";
   }
 

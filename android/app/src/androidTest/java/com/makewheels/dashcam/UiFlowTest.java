@@ -58,6 +58,7 @@ public class UiFlowTest {
     TransferEngine.message = "准备就绪";
     TransferEngine.taskIds = java.util.Collections.emptyList();
     TransferEngine.taskKind = "";
+    TransferEngine.outcome = "idle";
     TransferEngine.phase = TransferProgress.Phase.IDLE;
     String id = "ui-test-" + java.util.UUID.randomUUID();
     Context context = instrument.getTargetContext();
@@ -128,11 +129,15 @@ public class UiFlowTest {
       file.put("import_time", "2026-10-04_21-35-08");
       file.put("state", "copying");
       activity.store.getWritableDatabase().insertOrThrow("files", null, file);
+      file.put("id", id + "-second");
+      file.put("name", "20261004_090002_FRONT.mp4");
+      activity.store.getWritableDatabase().insertOrThrow("files", null, file);
       context.getSharedPreferences("settings", 0).edit().putBoolean("upload_paused", false).apply();
       TransferEngine.BUSY.set(true);
       TransferEngine.stopped = false;
       TransferEngine.taskKind = "import";
-      TransferEngine.taskIds = java.util.Collections.singletonList(id);
+      TransferEngine.taskIds = java.util.Arrays.asList(id, id + "-second");
+      TransferEngine.generation = 101;
       TransferEngine.activeId = id;
       TransferEngine.phase = TransferProgress.Phase.COPY;
       TransferEngine.done = 192L * 1024 * 1024;
@@ -143,7 +148,25 @@ public class UiFlowTest {
       instrument.runOnMainSync(
           () -> {
             activity.selectTab(0);
+            ((android.widget.ScrollView) activity.pages[0]).scrollTo(0, 2000);
+            activity.progressWasVisible = false;
+            activity.batchEstimate.generation = Long.MIN_VALUE;
+            activity.batchEstimate.remaining(
+                101, SystemClock.elapsedRealtime() - 1500, 0, 3.0 * 1024 * 1024 * 1024, true);
             activity.refresh();
+          });
+      instrument.waitForIdleSync();
+      SystemClock.sleep(900);
+      instrument.runOnMainSync(
+          () -> {
+            assertEquals(0, ((android.widget.ScrollView) activity.pages[0]).getScrollY());
+            assertEquals("6%", activity.homeTask.percent.getText().toString());
+            assertFalse(activity.ejectButton.isEnabled());
+            assertTrue(activity.homeTask.totalEta.getText().toString().startsWith("约 "));
+            assertFalse(contains(activity.root, "当前阶段剩余"));
+            assertFalse(contains(activity.root, "当前文件剩余"));
+            android.graphics.Rect bounds = new android.graphics.Rect();
+            assertTrue(activity.homeTask.percent.getGlobalVisibleRect(bounds));
           });
       shot("import-progress");
       file.clear();
@@ -151,10 +174,13 @@ public class UiFlowTest {
       file.put("sha", "test");
       activity.store.update(id, file);
       TransferEngine.taskKind = "upload";
+      TransferEngine.generation = 102;
       TransferEngine.phase = TransferProgress.Phase.UPLOAD;
       TransferEngine.message = "上传 · 20261004_090001_FRONT.mp4";
       instrument.runOnMainSync(
           () -> {
+            activity.batchEstimate.remaining(
+                102, SystemClock.elapsedRealtime() - 1500, 0, 1024.0 * 1024 * 1024, true);
             activity.selectTab(1);
             activity.refresh();
           });
@@ -182,13 +208,20 @@ public class UiFlowTest {
       shot("batch-detail");
       instrument.runOnMainSync(() -> activity.homePause.setVisibility(View.GONE));
       activity.prefs.edit().remove("source_tree").apply();
-      activity.store.getWritableDatabase().delete("files", "id=?", new String[] {id});
+      activity
+          .store
+          .getWritableDatabase()
+          .delete("files", "id IN (?,?)", new String[] {id, id + "-second"});
     } finally {
       activity.prefs.edit().remove("source_tree").apply();
-      activity.store.getWritableDatabase().delete("files", "id=?", new String[] {id});
+      activity
+          .store
+          .getWritableDatabase()
+          .delete("files", "id IN (?,?)", new String[] {id, id + "-second"});
       TransferEngine.BUSY.set(false);
       TransferEngine.taskIds = java.util.Collections.emptyList();
       TransferEngine.taskKind = "";
+      TransferEngine.outcome = "idle";
       TransferEngine.activeId = "";
       instrument.runOnMainSync(activity::finish);
     }

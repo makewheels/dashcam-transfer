@@ -35,7 +35,7 @@ def main():
         if "OK (" not in result.stdout or "FAILURES" in result.stdout:
             raise RuntimeError("Instrumented checks failed")
         output.mkdir(parents=True, exist_ok=True)
-        for name in ["home-status", "folder-path", "home-disconnected", "queue-empty", "import-progress", "upload-progress", "batch-history", "batch-detail"]:
+        for name in ["home-status", "copy-complete", "folder-path", "home-disconnected", "queue-empty", "import-progress", "upload-progress", "batch-history", "batch-detail"]:
             with (output / (name + ".png")).open("wb") as file:
                 subprocess.run(adb + ["exec-out", "run-as", "com.makewheels.dashcam.dev", "cat", "cache/" + name + ".png"], stdout=file, check=True)
     print("Screenshots saved: " + str(output))

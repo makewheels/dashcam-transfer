@@ -1,0 +1,63 @@
+name: Android设备界面验证
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: android-device-review
+  cancel-in-progress: false
+jobs:
+  device:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ANDROID_AVD_HOME: ${{ runner.temp }}/transfer-device-${{ github.run_id }}/avd
+      ANDROID_USER_HOME: ${{ runner.temp }}/transfer-device-${{ github.run_id }}/user
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '21'}
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: 准备隔离虚拟设备
+        run: |
+          mkdir -p "$ANDROID_AVD_HOME" "$ANDROID_USER_HOME"
+          sudo chmod 666 /dev/kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disk-size: 10G
+          ram-size: 2048M
+          avd-name: transfer-review
+          script: |
+            adb -s emulator-5554 shell sm set-virtual-disk true
+            disk_id="$(adb -s emulator-5554 shell sm list-disks | head -n 1 | tr -d '\r')"
+            test -n "$disk_id"
+            adb -s emulator-5554 shell sm partition "$disk_id" public
+            python3 deploy/check_android_device.py emulator-5554 "$RUNNER_TEMP/transfer-device-$GITHUB_RUN_ID/screenshots"
+      - name: 保存空配置测试界面
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-device-screenshots
+          path: ${{ runner.temp }}/transfer-device-${{ github.run_id }}/screenshots/*.png
+          if-no-files-found: ignore
+          retention-days: 3
+      - name: 清理本次虚拟设备
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os, shutil
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']).resolve()
+          target = (root / ('transfer-device-' + os.environ['GITHUB_RUN_ID'])).resolve()
+          assert target.parent == root and target.name.startswith('transfer-device-')
+          if target.exists(): shutil.rmtree(target)
+          PY

@@ -34,7 +34,15 @@ public final class MainActivity extends Activity {
       homePause,
       liveHint,
       batchStatus;
-  TextView deleteCardButton, recycleButton, nextButton;
+  TextView deleteCardButton, recycleButton, nextButton, ejectButton;
+  LinearLayout steps;
+  TextView firstStep, secondStep;
+  ProgressBar stepConnector;
+  final BatchEstimate batchEstimate = new BatchEstimate();
+  long focusedGeneration = Long.MIN_VALUE;
+  boolean progressWasVisible = false, awaitingStart = false;
+  String requestedKind = "";
+  long requestedGeneration = Long.MIN_VALUE;
   JSONArray remoteBatches = new JSONArray();
   boolean batchesLoading = false, readerPresent = false;
   String batchNext = null;
@@ -116,6 +124,17 @@ public final class MainActivity extends Activity {
     subtitle = text("把行车视频安全转存到云端", 13, Ui.MUTED);
     ui.add(header, subtitle, 8);
     root.addView(header);
+    steps = ui.row();
+    steps.setPadding(dp(24), 0, dp(24), dp(14));
+    firstStep = ui.bold("① 拷贝到手机", 13, Ui.BLUE);
+    secondStep = ui.bold("② 上传云端", 13, Ui.MUTED);
+    steps.addView(firstStep);
+    stepConnector = ui.bar();
+    LinearLayout.LayoutParams connector = new LinearLayout.LayoutParams(0, dp(4), 1);
+    connector.setMargins(dp(10), 0, dp(10), 0);
+    steps.addView(stepConnector, connector);
+    steps.addView(secondStep);
+    root.addView(steps);
     deviceBanner = ui.button("", false, this::choose);
     deviceBanner.setVisibility(View.GONE);
     LinearLayout.LayoutParams banner = new LinearLayout.LayoutParams(-1, -2);
@@ -145,6 +164,8 @@ public final class MainActivity extends Activity {
 
   View homePage() {
     LinearLayout content = ui.column();
+    homeTask = new TaskCard("整批拷贝进度");
+    ui.add(content, homeTask.card, 0);
     sourceCard = ui.card();
     otgState = ui.bold("检测 TF 卡…", 22, Ui.INK);
     sourceCard.addView(otgState);
@@ -166,9 +187,9 @@ public final class MainActivity extends Activity {
     nextButton = ui.button("下一步：上传云端 →", false, () -> selectTab(1));
     ui.add(content, nextButton, 12);
     homePause = ui.button("暂停", false, () -> TransferEngine.stop(this));
-    ui.add(content, homePause, 12);
-    homeTask = new TaskCard("拷贝进度");
-    ui.add(content, homeTask.card, 18);
+
+    ejectButton = ui.button("安全弹出 TF 卡", false, this::ejectCard);
+    ui.add(content, ejectButton, 12);
     return scroll(content);
   }
 
@@ -200,7 +221,17 @@ public final class MainActivity extends Activity {
     requestNotification();
     Intent intent = new Intent(this, TransferService.class).setAction(action);
     intent.putExtra("tree", prefs.getString("source_tree", ""));
+    requestedGeneration = TransferEngine.generation;
+    awaitingStart = true;
+    requestedKind = action.equals("delete-source") ? "delete-source" : "cleanup";
     startForegroundService(intent);
+    refresh();
+    handler.postDelayed(
+        () -> {
+          awaitingStart = false;
+          refresh();
+        },
+        5000);
   }
 
   void deleteCard() {
@@ -209,6 +240,43 @@ public final class MainActivity extends Activity {
         .setMessage("只删除已经整批复制校验、并再次核对手机副本与卡上内容的视频。未完成或内容变化的文件保留，不格式化 TF 卡。")
         .setNegativeButton("保留", null)
         .setPositiveButton("删除", (d, w) -> explicitAction("delete-source"))
+        .show();
+  }
+
+  void ejectCard() {
+    if (TransferEngine.BUSY.get() || scanning) {
+      toast("请先暂停拷贝或删除，再卸载 TF 卡");
+      return;
+    }
+    new AlertDialog.Builder(this)
+        .setTitle("安全弹出 TF 卡")
+        .setMessage("接下来打开系统存储页。请选择 TF 卡并点「卸载 / 弹出」，系统确认完成后再拔出读卡器。")
+        .setNegativeButton("取消", null)
+        .setPositiveButton(
+            "打开系统存储页",
+            (d, w) -> {
+              Intent intent = new Intent(Settings.ACTION_MEMORY_CARD_SETTINGS);
+              StorageManager manager = (StorageManager) getSystemService(Context.STORAGE_SERVICE);
+              String selectedVolume = "";
+              try {
+                selectedVolume = DocumentsContract.getTreeDocumentId(
+                    Uri.parse(prefs.getString("source_tree", ""))).split(":", 2)[0];
+              } catch (RuntimeException ignored) { }
+              for (StorageVolume volume : manager.getStorageVolumes())
+                if (volume.isRemovable() && selectedVolume.equalsIgnoreCase(volume.getUuid())) {
+                  intent.putExtra(StorageVolume.EXTRA_STORAGE_VOLUME, volume);
+                  break;
+                }
+              try {
+                startActivity(intent);
+              } catch (ActivityNotFoundException unavailable) {
+                try {
+                  startActivity(new Intent(Settings.ACTION_INTERNAL_STORAGE_SETTINGS));
+                } catch (ActivityNotFoundException alsoUnavailable) {
+                  toast("请在手机系统设置的存储页面卸载 TF 卡");
+                }
+              }
+            })
         .show();
   }
 
@@ -535,6 +603,8 @@ public final class MainActivity extends Activity {
 
   View queuePage() {
     LinearLayout content = ui.column();
+    uploadTask = new TaskCard("整批上传进度");
+    ui.add(content, uploadTask.card, 0);
     LinearLayout intro = ui.card();
     queueTitle = ui.bold("", 23, Ui.INK);
     intro.addView(queueTitle);
@@ -556,8 +626,7 @@ public final class MainActivity extends Activity {
     recycleButton = ui.button("移入手机回收站", false, this::recyclePhone);
     ui.add(content, recycleButton, 12);
     ui.add(content, button("← 返回拷贝", () -> selectTab(0)), 12);
-    uploadTask = new TaskCard("上传进度");
-    ui.add(content, uploadTask.card, 16);
+
     list = ui.column();
     ui.add(content, list, 20);
     return scroll(content);
@@ -611,6 +680,10 @@ public final class MainActivity extends Activity {
     for (int i = 0; i < 5; i++) {
       pages[i].setVisibility(i == tab ? View.VISIBLE : View.GONE);
     }
+    steps.setVisibility(tab < 2 ? View.VISIBLE : View.GONE);
+    firstStep.setTextColor(tab == 0 ? Ui.BLUE : Ui.GREEN);
+    secondStep.setTextColor(tab == 1 ? Ui.BLUE : Ui.MUTED);
+    stepConnector.setProgress(tab == 1 ? 1000 : 0);
     heading.setText(titles[tab]);
     subtitle.setText(sub[tab]);
     if (tab == 3 && !loading) loadCloud(false);
@@ -843,7 +916,7 @@ public final class MainActivity extends Activity {
     queueAction.setEnabled(!busy && ready > 0);
     queueAction.setAlpha(busy || ready == 0 ? .5f : 1);
     queueAction.setText(busy ? "任务进行中" : "上传云端" + (ready > 0 ? " · " + ready + " 个" : ""));
-    queuePause.setVisibility(busy ? View.VISIBLE : View.GONE);
+    queuePause.setVisibility(View.GONE);
     List<Store.Item> taskFiles =
         (homeTask.card.getVisibility() == View.VISIBLE
                 || uploadTask.card.getVisibility() == View.VISIBLE)
@@ -914,15 +987,37 @@ public final class MainActivity extends Activity {
         && !scanning
         && Arrays.asList("import", "delete-source").contains(TransferEngine.taskKind)
         && !TransferEngine.taskIds.isEmpty()) liveHint.append("\n" + TransferEngine.message);
+    if (busy || (TransferEngine.generation != requestedGeneration
+        && !"running".equals(TransferEngine.outcome))) awaitingStart = false;
+    boolean hasTask = !TransferEngine.taskIds.isEmpty();
+    boolean show = busy || awaitingStart || scanning || hasTask;
+    String visibleKind = scanning || awaitingStart ? requestedKind : TransferEngine.taskKind;
     homeTask.card.setVisibility(
-        busy || (!TransferEngine.taskIds.isEmpty() && prefs.getBoolean("upload_paused", false))
+        show && Arrays.asList("import", "delete-source").contains(visibleKind)
             ? View.VISIBLE
             : View.GONE);
     uploadTask.card.setVisibility(
-        Arrays.asList("upload", "cleanup").contains(TransferEngine.taskKind)
-                && homeTask.card.getVisibility() == View.VISIBLE
+        show && Arrays.asList("upload", "cleanup").contains(visibleKind)
             ? View.VISIBLE
             : View.GONE);
+    boolean currentVisible =
+        tab == 0
+            ? homeTask.card.getVisibility() == View.VISIBLE
+            : tab == 1 && uploadTask.card.getVisibility() == View.VISIBLE;
+    if (currentVisible
+        && (!progressWasVisible || (busy && focusedGeneration != TransferEngine.generation))) {
+      focusedGeneration = TransferEngine.generation;
+      View page = pages[tab];
+      page.post(() -> ((ScrollView) page).smoothScrollTo(0, 0));
+    }
+    progressWasVisible = currentVisible;
+    if (!busy
+        && "completed".equals(TransferEngine.outcome)
+        && "import".equals(TransferEngine.taskKind)) {
+      liveHint.setText("第一步已完成：视频已拷贝并校验。下一步上传云端。卡上原视频可按需手动删除。");
+    }
+    ejectButton.setEnabled(!busy && !scanning && cardPresent);
+    ejectButton.setAlpha(!busy && !scanning && cardPresent ? 1f : .45f);
     if (tab == 2 && !batchesLoading) renderBatches();
   }
 
@@ -939,8 +1034,8 @@ public final class MainActivity extends Activity {
         fileName,
         currentLabel,
         speed,
-        eta,
-        totalEta;
+        totalEta,
+        action;
     final ProgressBar totalBar, currentBar;
 
     TaskCard(String name) {
@@ -952,43 +1047,75 @@ public final class MainActivity extends Activity {
       card.addView(top);
       totalBar = ui.bar();
       card.addView(totalBar);
-      totalLabel = text("", 12, Ui.MUTED);
-      ui.add(card, totalLabel, 9);
-      ui.line(card, 16);
+      totalLabel = text("", 13, Ui.MUTED);
+      ui.add(card, totalLabel, 8);
+      ui.add(card, text("总剩余时间", 12, Ui.MUTED), 14);
+      totalEta = ui.bold("正在测量整批速度…", 23, Ui.BLUE);
+      ui.add(card, totalEta, 5);
+      speed = text("", 12, Ui.MUTED);
+      ui.add(card, speed, 6);
+      ui.line(card, 12);
       phaseLabel = ui.chip("", Ui.BLUE, Ui.TINT);
-      card.addView(phaseLabel, new LinearLayout.LayoutParams(-2, -2));
-      fileName = ui.bold("", 14, Ui.INK);
+      card.addView(phaseLabel);
+      fileName = text("", 12, Ui.INK);
       fileName.setMaxLines(2);
-      ui.add(card, fileName, 12);
+      ui.add(card, fileName, 8);
       currentBar = ui.bar();
-      card.addView(currentBar);
-      currentLabel = text("", 12, Ui.MUTED);
-      ui.add(card, currentLabel, 8);
-      LinearLayout metrics = ui.row();
-      speed = metric(metrics, "速度");
-      eta = metric(metrics, "当前阶段剩余");
-      totalEta = metric(metrics, "预计总剩余");
-      ui.add(card, metrics, 18);
+      card.addView(currentBar, new LinearLayout.LayoutParams(-1, dp(4)));
+      currentLabel = text("", 11, Ui.MUTED);
+      ui.add(card, currentLabel, 6);
+      action = ui.button("暂停", false, this::act);
+      ui.add(card, action, 12);
     }
 
-    TextView metric(LinearLayout row, String label) {
-      LinearLayout col = ui.column();
-      col.addView(text(label, 11, Ui.MUTED));
-      TextView value = ui.bold("—", 15, Ui.INK);
-      ui.add(col, value, 6);
-      row.addView(col, new LinearLayout.LayoutParams(0, -2, 1));
-      return value;
+    void act() {
+      if (TransferEngine.BUSY.get()) {
+        TransferEngine.stop(MainActivity.this);
+        return;
+      }
+      String kind = TransferEngine.taskKind;
+      if ("completed".equals(TransferEngine.outcome) && "import".equals(kind)) {
+        selectTab(1);
+        return;
+      }
+      if ("completed".equals(TransferEngine.outcome) && "upload".equals(kind)) {
+        recyclePhone();
+        return;
+      }
+      if ("completed".equals(TransferEngine.outcome) && "delete-source".equals(kind)) {
+        ejectCard();
+        return;
+      }
+      if ("delete-source".equals(kind)) deleteCard();
+      else if ("cleanup".equals(kind)) recyclePhone();
+      else if ("import".equals(kind)) scan();
+      else upload();
     }
 
     void update(List<Store.Item> all) {
       if (card.getVisibility() != View.VISIBLE) return;
+      if (scanning || awaitingStart) {
+        title.setText(scanning ? "正在检查文件与空间" : "正在启动任务");
+        percent.setText("…");
+        totalBar.setIndeterminate(true);
+        totalLabel.setText("进度会在这里显示");
+        totalEta.setText("即将开始");
+        speed.setText("");
+        phaseLabel.setText("准备中");
+        fileName.setText("");
+        currentLabel.setText("");
+        action.setEnabled(false);
+        action.setText("请稍候");
+        return;
+      }
+      totalBar.setIndeterminate(false);
       boolean deleting = "delete-source".equals(TransferEngine.taskKind),
           cleaning = "cleanup".equals(TransferEngine.taskKind);
       boolean importing = "import".equals(TransferEngine.taskKind);
       long size = 0;
       double finished = 0;
       int count = 0, complete = 0;
-      String name = "等待任务开始";
+      String name = "等待处理视频";
       for (Store.Item item : all) {
         if (!TransferEngine.taskIds.contains(item.id)) continue;
         size += item.size;
@@ -1000,73 +1127,93 @@ public final class MainActivity extends Activity {
                     ? "uploaded".equals(item.state)
                     : importing
                         ? item.sha != null
+                            && Arrays.asList(
+                                    "ready",
+                                    "uploading",
+                                    "upload_error",
+                                    "cleanup_error",
+                                    "uploaded")
+                                .contains(item.state)
                         : Arrays.asList("uploaded", "cleanup_error").contains(item.state);
         if (ok) {
           finished += item.size;
           complete++;
         } else if (item.id.equals(TransferEngine.activeId)) {
-          finished +=
-              item.size
-                  * (deleting || cleaning
-                      ? TransferProgress.fraction(TransferEngine.done, TransferEngine.total) * .95
-                      : importing
-                          ? TransferProgress.imported(
-                              TransferEngine.phase, TransferEngine.done, TransferEngine.total)
-                          : TransferEngine.phase == TransferProgress.Phase.UPLOAD
-                              ? TransferProgress.fraction(TransferEngine.done, TransferEngine.total)
-                                  * .95
-                              : TransferEngine.phase == TransferProgress.Phase.VERIFY_CLOUD
-                                  ? .95
-                                  : 0);
+          double fraction =
+              deleting || cleaning
+                  ? TransferProgress.fraction(TransferEngine.done, TransferEngine.total) * .95
+                  : importing
+                      ? TransferProgress.imported(
+                          TransferEngine.phase, TransferEngine.done, TransferEngine.total)
+                      : TransferEngine.phase == TransferProgress.Phase.UPLOAD
+                          ? TransferProgress.fraction(TransferEngine.done, TransferEngine.total)
+                              * .95
+                          : TransferEngine.phase == TransferProgress.Phase.VERIFY_CLOUD ? .95 : 0;
+          finished += item.size * fraction;
         }
         if (item.id.equals(TransferEngine.activeId)) name = item.name;
       }
-      boolean busy = TransferEngine.BUSY.get();
-      int p = size > 0 ? (int) Math.min(100, finished * 100 / size) : 0;
+      boolean busy = TransferEngine.BUSY.get(),
+          completed = "completed".equals(TransferEngine.outcome);
+      int percentage = size > 0 ? (int) Math.min(100, finished * 100 / size) : 0;
       title.setText(
-          (deleting ? "删除卡上视频" : cleaning ? "移入回收站" : importing ? "拷贝" : "上传")
-              + (busy ? "总进度" : " · 已暂停"));
-      percent.setText(p + "%");
-      totalBar.setProgress(p * 10);
+          (deleting ? "卡上删除" : cleaning ? "手机清理" : importing ? "整批拷贝" : "整批上传")
+              + (busy ? "进度" : completed ? "已完成" : "已暂停 / 待继续"));
+      percent.setText(percentage + "%");
+      totalBar.setProgress(percentage * 10);
       totalLabel.setText(
-          (deleting ? "已删除 " : cleaning ? "已清理 " : importing ? "已完整校验 " : "云端已确认 ")
+          "已完成 "
               + complete
               + " / "
               + count
-              + " 个视频"
-              + (importing ? " · 含复制与校验" : ""));
+              + " 个视频 · "
+              + TransferEngine.bytes((long) finished)
+              + " / "
+              + TransferEngine.bytes(size)
+              + (importing ? "（含校验）" : ""));
+      double multiplier = importing ? 3 : 1;
+      long remaining =
+          batchEstimate.remaining(
+              TransferEngine.generation,
+              SystemClock.elapsedRealtime(),
+              finished * multiplier,
+              size * multiplier,
+              busy);
+      totalEta.setText(
+          percentage == 100
+              ? "已完成"
+              : !busy && completed
+                  ? "本次操作已结束"
+                  : !busy
+                      ? "已暂停"
+                      : remaining < 0 ? "正在测量整批速度…" : "约 " + TransferProgress.duration(remaining));
+      speed.setText(
+          batchEstimate.rate > 0 && busy
+              ? "处理速度 " + TransferEngine.bytes((long) batchEstimate.rate) + "/s"
+              : "");
       phaseLabel.setText(TransferProgress.label(TransferEngine.phase));
       fileName.setText(name);
-      boolean cloudCheck = TransferEngine.phase == TransferProgress.Phase.VERIFY_CLOUD;
-      currentBar.setIndeterminate(cloudCheck && busy);
+      boolean checking = TransferEngine.phase == TransferProgress.Phase.VERIFY_CLOUD;
+      currentBar.setIndeterminate(checking && busy);
       currentBar.setProgress(
           (int) (TransferProgress.fraction(TransferEngine.done, TransferEngine.total) * 1000));
       currentLabel.setText(
-          cloudCheck
-              ? "文件已传完，正在核对云端大小与 CRC"
-              : "当前文件 "
+          checking
+              ? "当前视频：正在核验云端完整性"
+              : "当前视频 "
                   + (int)
                       (TransferProgress.fraction(TransferEngine.done, TransferEngine.total) * 100)
-                  + "%  ·  "
-                  + TransferEngine.bytes(TransferEngine.done)
-                  + " / "
-                  + TransferEngine.bytes(TransferEngine.total));
-      long elapsed = SystemClock.elapsedRealtime() - TransferEngine.started;
-      double rate =
-          busy && elapsed > 1000
-              ? (TransferEngine.done - TransferEngine.phaseBase) * 1000.0 / elapsed
-              : 0;
-      speed.setText(rate > 0 && !cloudCheck ? TransferEngine.bytes((long) rate) + "/s" : "—");
-      eta.setText(
-          rate > 0 && !cloudCheck
-              ? TransferProgress.duration(
-                  (long) ((TransferEngine.total - TransferEngine.done) / rate))
-              : busy ? "计算中" : "已暂停");
-      totalEta.setText(
-          rate > 0 && !cloudCheck
-              ? TransferProgress.duration(
-                  (long) (Math.max(0, size - finished) * (importing ? 3 : 1) / rate))
-              : busy ? "计算中" : "已暂停");
+                  + "%");
+      action.setEnabled(true);
+      action.setText(
+          busy
+              ? "暂停"
+              : completed && importing
+                  ? "下一步：上传云端 →"
+                  : completed && deleting
+                      ? "安全弹出 TF 卡"
+                      : completed && !cleaning ? "移入手机回收站" : "继续当前操作");
+      action.setVisibility(!busy && completed && cleaning ? View.GONE : View.VISIBLE);
     }
   }
 
@@ -1336,6 +1483,7 @@ public final class MainActivity extends Activity {
       return;
     }
     scanning = true;
+    requestedKind = "import";
     refresh();
     executor.execute(
         () -> {
@@ -1437,8 +1585,17 @@ public final class MainActivity extends Activity {
     Intent i = new Intent(this, TransferService.class);
     if (batch != null) i.putExtra("batch", batch);
     i.putExtra("cellular", cellular);
+    requestedGeneration = TransferEngine.generation;
+    awaitingStart = true;
+    requestedKind = batch == null ? "upload" : "import";
     startForegroundService(i);
     refresh();
+    handler.postDelayed(
+        () -> {
+          awaitingStart = false;
+          refresh();
+        },
+        5000);
   }
 
   void upload() {
@@ -1460,7 +1617,10 @@ public final class MainActivity extends Activity {
     if (!engine.wifi())
       new AlertDialog.Builder(this)
           .setTitle("使用移动网络上传")
-          .setMessage("视频可能占用较多流量。本次允许上传；中断后需再次手动启动。")
+          .setMessage(
+              "本次待上传约 "
+                  + TransferEngine.bytes(ready.stream().mapToLong(f -> f.size).sum())
+                  + "，是否通过流量上传？中断后需再次手动确认。")
           .setNegativeButton("取消", null)
           .setPositiveButton("开始上传", (d, w) -> start(null, true))
           .show();

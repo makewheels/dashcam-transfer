@@ -72,7 +72,9 @@ public final class TransferService extends Service {
                 else if ("recycle-phone".equals(action)) engine.runCleanup();
                 else if (batch != null) engine.runImport(batch);
                 else engine.runUpload(cellular);
+                TransferEngine.outcome = "completed";
               } catch (Exception e) {
+                TransferEngine.outcome = e instanceof TransferEngine.Paused ? "paused" : "error";
                 TransferEngine.message = TransferEngine.readable(e);
               } finally {
                 if (wake.isHeld()) wake.release();
