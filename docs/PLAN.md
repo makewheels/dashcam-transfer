@@ -285,7 +285,7 @@ Android增加开发applicationIdSuffix `.dev`、开发标签，生产app ID不�
 - 验收边界：模拟器未再验证App内下载→安装（本机磁盘与时间限制）；真实链路以HTTP层完整下载核对为准。用户在0.4.3上「检查更新→下载安装0.4.4」即真实验证新域名链路；装上0.4.4后可见新进度对话框。真机OTG/锁屏/实际吞吐仍待用户验收。iOS仍占位。
 - 本次20:51一次性LaunchAgent `local.dashcam-update.once` 已提前完成工作并卸载，未触发。
 
-## 0.4.5 首页极简两步结构（2026-10-05，发行中）
+## 0.4.5 首页极简两步结构（2026-10-05，已发行并飞书交付）
 
 用户反馈0.4.4首页仍堆砌（下一步/安全弹出/常驻换目录按钮等），要求拷贝页只有检测卡、拷贝、删除三件事，上传页只有上传的事。
 
@@ -296,3 +296,6 @@ Android增加开发applicationIdSuffix `.dev`、开发标签，生产app ID不�
 - 模拟器验证：0.4.3→0.4.4 App内更新全链路实测通过（自动弹窗→下载→未知来源授权→系统安装器→versionName=0.4.4），下载走新域名约3秒完成。新UI截图验证首页/上传页/更多菜单符合预期。过程中发现并修复queuePage网络chip空引用崩溃（network创建语句随header移动时丢失）；本地模拟器受12GB userdata限制，用-partition-size 4096启动成功。
 - uiautomator dump/screencap验证时曾被com.makewheels.dashcam正式版前台窗口误导（.dev首启崩溃退回），以topResumedActivity确认前台包名是排查关键；dexdump/strings对中文MUTF-8不可用，验证APK内容用python字节搜索。
 - debug构建/lint/单测本地通过；设备测试交由GitHub Actions隔离验证。版本0.4.5/code 4005。
+- 源码e51309f推送，CI 37307432191成功；发行37308871146成功。正式APK 5351260字节、SHA-256 `08632e957f60dc7b1347f79e9ee6241dbd37fd781dffc34dbcb97211c98ae24d`，0.4.5/code 4005、与0.4.4同签名；生产更新接口返回0.4.5且完整下载SHA一致，host为自定义下载域名。飞书APK+说明发送成功，message_id `om_x100b630d214040a0c32a4435b30db39`。
+- GitHub Release v0.4.5带SHA256SUMS.txt校验文件（不挂APK公开附件）；发现CI浅克隆读不到annotated tag说明，标题/描述曾取到commit信息，已手动修正Release并用checkout fetch-depth: 0修复workflow（b436e1c），下个版本生效。期间遇到两次github.com 443间歇超时与Mac磁盘占满（模拟器userdata+构建产物，清理AVD与/tmp后释放41GB），tag曾指向旧commit，已取消发行、重打tag到0abefd6重跑。
+- 用户验收：0.4.5真机安装后确认首页三件事结构与步骤切换；App内更新链路已在模拟器实测（0.4.3→0.4.4）。真机OTG/锁屏/实际吞吐仍待日常验收；iOS仍占位。
