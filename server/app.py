@@ -41,6 +41,13 @@ def create_app(database=None, bucket=None, token=None):
     if bucket is None:
         auth = oss2.Auth(os.environ["OSS_ACCESS_KEY_ID"], os.environ["OSS_ACCESS_KEY_SECRET"])
         bucket = oss2.Bucket(auth, os.environ["OSS_ENDPOINT"], os.environ["OSS_BUCKET"], connect_timeout=15)
+        # Default OSS endpoints reject APK downloads even with signed URLs; sign
+        # downloads on the bucket's bound custom domain when one is configured.
+        domain = os.environ.get("DASHCAM_DOWNLOAD_DOMAIN", "")
+        downloads = (oss2.Bucket(bucket.auth, f"https://{domain}", os.environ["OSS_BUCKET"],
+                                 is_cname=True, connect_timeout=15) if domain else bucket)
+    else:
+        downloads = bucket
     secret = token or os.environ["DASHCAM_APP_TOKEN"]
     imports = database.import_batches
     imports.create_index("import_time")
@@ -267,7 +274,7 @@ def create_app(database=None, bucket=None, token=None):
             return jsonify(error="cloud file no longer exists"), 404
         if doc["state"] == "missing":
             videos.update_one({"_id": file_id}, {"$set": {"state": "uploaded"}})
-        return jsonify(url=bucket.sign_url("GET", doc["object_key"], SIGN_SECONDS, slash_safe=True))
+        return jsonify(url=downloads.sign_url("GET", doc["object_key"], SIGN_SECONDS, slash_safe=True))
 
     @app.get("/updates/android")
     @protected
@@ -277,7 +284,7 @@ def create_app(database=None, bucket=None, token=None):
             version = str(manifest["version_name"])
             if not re.fullmatch(r"\d+\.\d+\.\d+", version):
                 raise ValueError("invalid release")
-            manifest["url"] = bucket.sign_url("GET", f"releases/android/{version}/app.apk", SIGN_SECONDS, slash_safe=True)
+            manifest["url"] = downloads.sign_url("GET", f"releases/android/{version}/app.apk", SIGN_SECONDS, slash_safe=True)
             return jsonify(manifest)
         except oss2.exceptions.NoSuchKey:
             return jsonify(available=False)

@@ -49,6 +49,8 @@ public final class MainActivity extends Activity {
   String inventoryOutcome = "";
   String inventorySummary = "", inventorySignature = "";
   AlertDialog inventoryDialog;
+  AlertDialog updateDialog;
+  volatile boolean updateCancelled;
   JSONArray remoteBatches = new JSONArray();
   boolean batchesLoading = false, readerPresent = false;
   String batchNext = null;
@@ -1781,46 +1783,101 @@ public final class MainActivity extends Activity {
         });
   }
 
+  static final class Cancelled extends IOException {}
+
   void download(JSONObject version) {
-    executor.execute(
+    updateCancelled = false;
+    runOnUiThread(
         () -> {
-          File apk = new File(getCacheDir(), "update.apk");
-          try {
-            HttpURLConnection c =
-                (HttpURLConnection) new URL(version.getString("url")).openConnection();
-            c.setConnectTimeout(20000);
-            c.setReadTimeout(60000);
-            try {
-              if (c.getResponseCode() != 200) throw new IOException("下载链接失效，请重新检查更新");
-              long length = version.getLong("size");
-              if (TransferEngine.free(this) < length + TransferEngine.RESERVE)
-                throw new IOException("请清理手机空间后更新");
-              try (InputStream in = c.getInputStream();
-                  OutputStream out = new FileOutputStream(apk)) {
-                byte[] b = new byte[128 * 1024];
-                int n;
-                long received = 0;
-                while ((n = in.read(b)) != -1) {
-                  out.write(b, 0, n);
-                  received += n;
-                  if (received > length) throw new IOException("安装包大小不匹配");
-                }
-                if (received != length) throw new IOException("安装包未下载完整");
-              }
-            } finally {
-              c.disconnect();
-            }
-            String[] digest;
-            try (InputStream in = new FileInputStream(apk)) {
-              digest = Digests.hash(in, n -> {});
-            }
-            if (!digest[0].equals(version.getString("sha256"))) throw new IOException("安装包校验失败");
-            runOnUiThread(this::install);
-          } catch (Exception e) {
-            apk.delete();
-            runOnUiThread(() -> toast(TransferEngine.readable(e)));
-          }
+          if (isFinishing() || isDestroyed()) return;
+          ProgressBar bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+          TextView label = new TextView(this);
+          label.setText("准备下载…");
+          LinearLayout box = new LinearLayout(this);
+          box.setOrientation(LinearLayout.VERTICAL);
+          int pad = (int) (20 * getResources().getDisplayMetrics().density);
+          box.setPadding(pad, pad, pad, pad);
+          box.addView(bar);
+          box.addView(label);
+          updateDialog =
+              new AlertDialog.Builder(this)
+                  .setTitle("下载更新 " + version.optString("version_name"))
+                  .setView(box)
+                  .setNegativeButton(
+                      "取消",
+                      (d, w) -> {
+                        updateCancelled = true;
+                        if (updateDialog != null && updateDialog.isShowing()) updateDialog.dismiss();
+                      })
+                  .setCancelable(false)
+                  .show();
+          executor.execute(() -> doDownload(version, bar, label));
         });
+  }
+
+  void dismissUpdateDialog() {
+    runOnUiThread(
+        () -> {
+          if (updateDialog != null && updateDialog.isShowing()) updateDialog.dismiss();
+        });
+  }
+
+  void doDownload(JSONObject version, ProgressBar bar, TextView label) {
+    File apk = new File(getCacheDir(), "update.apk");
+    try {
+      long length = version.getLong("size");
+      HttpURLConnection c =
+          (HttpURLConnection) new URL(version.getString("url")).openConnection();
+      c.setConnectTimeout(20000);
+      c.setReadTimeout(60000);
+      try {
+        if (c.getResponseCode() != 200) throw new IOException("下载链接失效，请重新检查更新");
+        if (TransferEngine.free(this) < length + TransferEngine.RESERVE)
+          throw new IOException("请清理手机空间后更新");
+        int[] lastPct = {-1};
+        try (InputStream in = c.getInputStream();
+            OutputStream out = new FileOutputStream(apk)) {
+          byte[] b = new byte[128 * 1024];
+          int n;
+          long received = 0;
+          while ((n = in.read(b)) != -1) {
+            if (updateCancelled) throw new Cancelled();
+            out.write(b, 0, n);
+            received += n;
+            if (received > length) throw new IOException("安装包大小不匹配");
+            int pct = (int) (received * 100 / length);
+            if (pct != lastPct[0]) {
+              lastPct[0] = pct;
+              final long done = received, total = length;
+              runOnUiThread(
+                  () -> {
+                    bar.setProgress(pct);
+                    label.setText(pct + "% · " + done / 1048576 + " / " + total / 1048576 + " MB");
+                  });
+            }
+          }
+          if (received != length) throw new IOException("安装包未下载完整");
+        }
+      } finally {
+        c.disconnect();
+      }
+      runOnUiThread(() -> label.setText("校验安装包…"));
+      String[] digest;
+      try (InputStream in = new FileInputStream(apk)) {
+        digest = Digests.hash(in, n -> {});
+      }
+      if (!digest[0].equals(version.getString("sha256"))) throw new IOException("安装包校验失败");
+      if (updateCancelled) throw new Cancelled();
+      dismissUpdateDialog();
+      runOnUiThread(this::install);
+    } catch (Cancelled cancelled) {
+      apk.delete();
+      dismissUpdateDialog();
+    } catch (Exception e) {
+      apk.delete();
+      dismissUpdateDialog();
+      runOnUiThread(() -> toast(TransferEngine.readable(e)));
+    }
   }
 
   void install() {

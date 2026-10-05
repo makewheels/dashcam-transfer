@@ -13,7 +13,7 @@ from alibabacloud_tea_openapi.models import Config
 from package_server import package
 
 RUNTIME_KEYS = ("DASHCAM_MONGO_URI", "DASHCAM_DB_NAME", "DASHCAM_APP_TOKEN", "OSS_ACCESS_KEY_ID",
-                "OSS_ACCESS_KEY_SECRET", "OSS_BUCKET", "OSS_ENDPOINT")
+                "OSS_ACCESS_KEY_SECRET", "OSS_BUCKET", "OSS_ENDPOINT", "DASHCAM_DOWNLOAD_DOMAIN")
 
 
 def deploy(create=False, upload_code=True):
@@ -22,7 +22,8 @@ def deploy(create=False, upload_code=True):
                     access_key_secret=os.environ["ALIBABA_CLOUD_ACCESS_KEY_SECRET"], endpoint=f"fcv3.{region}.aliyuncs.com")
     client = Client(config)
     name = os.environ["DASHCAM_FUNCTION_NAME"]
-    variables = {key: os.environ[key] for key in RUNTIME_KEYS}
+    variables = {key: os.environ[key] for key in RUNTIME_KEYS if key != "DASHCAM_DOWNLOAD_DOMAIN"}
+    variables["DASHCAM_DOWNLOAD_DOMAIN"] = os.environ.get("DASHCAM_DOWNLOAD_DOMAIN", "")
     variables["DASHCAM_MONGO_CA_PEM"] = base64.b64decode(os.environ["DASHCAM_MONGO_CA_BASE64"]).decode()
     variables["PYTHONUNBUFFERED"] = "1"
     with tempfile.TemporaryDirectory(prefix="dashcam-fc-deploy-") as temp:
