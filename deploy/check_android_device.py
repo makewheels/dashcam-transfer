@@ -25,9 +25,9 @@ def main():
     if not disks:
         raise RuntimeError("Virtual removable storage missing")
     subprocess.run(adb + ["shell", "sm", "partition", disks[0], "public"], check=True)
-    with tempfile.TemporaryDirectory(prefix="transfer-device-check-") as directory:
-        env["DASHCAM_BUILD_ROOT"] = str(Path(directory) / "build")
-        subprocess.run([str(root / "android/gradlew"), "--project-cache-dir", str(Path(directory) / "cache"),
+    # Kotlin 2.0.20+ ignores custom build directories, so build in place and clean up after.
+    try:
+        subprocess.run([str(root / "android/gradlew"), "--project-cache-dir", str(Path(tempfile.gettempdir()) / "dashcam-device-cache"),
                         ":app:assembleDebug", ":app:assembleDebugAndroidTest", ":app:lintDebug", ":app:testDebugUnitTest", "--no-daemon"],
                        cwd=root / "android", env=env, check=True)
         subprocess.run(adb + ["wait-for-device"], check=True, timeout=90)
@@ -36,8 +36,9 @@ def main():
             if time.monotonic() > deadline:
                 raise RuntimeError("Emulator boot timeout")
             time.sleep(1)
+        outputs = root / "android/app/build/outputs/apk"
         for apk in ["debug/app-debug.apk", "androidTest/debug/app-debug-androidTest.apk"]:
-            subprocess.run(adb + ["install", "-r", str(Path(directory) / "build/app/outputs/apk" / apk)], check=True)
+            subprocess.run(adb + ["install", "-r", str(outputs / apk)], check=True)
         subprocess.run(adb + ["shell", "pm", "grant", "com.makewheels.dashcam.dev", "android.permission.POST_NOTIFICATIONS"], check=True)
         result = subprocess.run(adb + ["shell", "am", "instrument", "-w", "com.makewheels.dashcam.dev.test/androidx.test.runner.AndroidJUnitRunner"], capture_output=True, text=True, check=True)
         print(result.stdout)
@@ -47,6 +48,10 @@ def main():
         for name in ["card-detected", "card-empty", "home-status", "copy-complete", "folder-path", "home-disconnected", "queue-empty", "import-progress", "upload-progress", "batch-history", "batch-detail"]:
             with (output / (name + ".png")).open("wb") as file:
                 subprocess.run(adb + ["exec-out", "run-as", "com.makewheels.dashcam.dev", "cat", "cache/" + name + ".png"], stdout=file, check=True)
+    finally:
+        import shutil
+        for relative in ["android/app/build", "android/build", "android/.kotlin", "android/app/.kotlin"]:
+            shutil.rmtree(root / relative, ignore_errors=True)
     print("Screenshots saved: " + str(output))
 
 
