@@ -22,7 +22,7 @@ public class UiFlowTest {
 
   void shot(String name) throws Exception {
     instrument.waitForIdleSync();
-    SystemClock.sleep(600);
+    SystemClock.sleep(3500);
     Bitmap bitmap = instrument.getUiAutomation().takeScreenshot();
     assertNotNull(bitmap);
     try (FileOutputStream out =
@@ -56,6 +56,8 @@ public class UiFlowTest {
   @Test
   public void guidanceNavigationAndProgressHaveClearNextActions() throws Exception {
     TransferEngine.message = "准备就绪";
+    TransferEngine.taskIds = java.util.Collections.emptyList();
+    TransferEngine.taskKind = "";
     TransferEngine.phase = TransferProgress.Phase.IDLE;
     String id = "ui-test-" + java.util.UUID.randomUUID();
     Context context = instrument.getTargetContext();
@@ -74,10 +76,31 @@ public class UiFlowTest {
       instrument.runOnMainSync(
           () -> {
             assertTrue(contains(activity.root, "拷贝到手机"));
-            assertTrue(contains(activity.root, "上传云端"));
-            assertTrue(contains(activity.root, "OTG / TF 卡"));
+            assertFalse(contains(activity.root, "待上传"));
+            assertTrue(contains(activity.root, "删除卡上已拷贝的视频"));
+            assertTrue(contains(activity.root, "下一步"));
+            assertFalse(contains(activity.root, "设置"));
+            assertTrue(contains(activity.root, "TF 卡"));
           });
+      SystemClock.sleep(3500);
       shot("home-status");
+      instrument.runOnMainSync(
+          () -> {
+            activity
+                .prefs
+                .edit()
+                .putString(
+                    "source_tree",
+                    android.provider.DocumentsContract.buildTreeDocumentUri(
+                            "com.android.externalstorage.documents",
+                            "ABCD-1234:DCIM/recorder/video")
+                        .toString())
+                .apply();
+            activity.refresh();
+            assertEquals(
+                "/storage/ABCD-1234/DCIM/recorder/video", activity.source.getText().toString());
+          });
+      shot("folder-path");
       boolean connected = activity.cardPresent;
       instrument.runOnMainSync(
           () -> {
@@ -96,31 +119,6 @@ public class UiFlowTest {
       instrument.waitForIdleSync();
       instrument.runOnMainSync(() -> assertTrue(contains(activity.root, "去导入视频")));
       shot("queue-empty");
-      instrument.runOnMainSync(() -> activity.selectTab(3));
-      instrument.waitForIdleSync();
-      SystemClock.sleep(300);
-      instrument.runOnMainSync(
-          () -> {
-            try {
-              activity.cloudItems =
-                  new org.json.JSONArray()
-                      .put(
-                          new org.json.JSONObject()
-                              .put("name", "20261004_090001_FRONT.mp4")
-                              .put("date", "2026-10-04")
-                              .put("import_time", "2026-10-04_21-35-08")
-                              .put("size", 512L * 1024 * 1024)
-                              .put("state", "uploaded"));
-              activity.renderCloud();
-            } catch (Exception e) {
-              throw new AssertionError(e);
-            }
-          });
-      shot("cloud-videos");
-      instrument.runOnMainSync(() -> activity.selectTab(4));
-      instrument.waitForIdleSync();
-      instrument.runOnMainSync(() -> assertTrue(contains(activity.root, "手机副本进入回收站")));
-      shot("settings");
       ContentValues file = new ContentValues();
       file.put("id", id);
       file.put("batch", "ui-review");
@@ -183,8 +181,10 @@ public class UiFlowTest {
           });
       shot("batch-detail");
       instrument.runOnMainSync(() -> activity.homePause.setVisibility(View.GONE));
+      activity.prefs.edit().remove("source_tree").apply();
       activity.store.getWritableDatabase().delete("files", "id=?", new String[] {id});
     } finally {
+      activity.prefs.edit().remove("source_tree").apply();
       activity.store.getWritableDatabase().delete("files", "id=?", new String[] {id});
       TransferEngine.BUSY.set(false);
       TransferEngine.taskIds = java.util.Collections.emptyList();

@@ -48,7 +48,17 @@ public class RecycleTest {
       values.put("state", "cleanup_error");
       store.getWritableDatabase().insertOrThrow("files", null, values);
       TransferEngine.stopped = false;
-      new TransferEngine(context).cleanup(store.files("id=?", id).get(0));
+      TransferEngine engine = new TransferEngine(context);
+      engine.runUpload(false);
+      assertEquals("cleanup_error", store.files("id=?", id).get(0).state);
+      try (Cursor before =
+          resolver.query(
+              uri, new String[] {MediaStore.MediaColumns.IS_TRASHED}, null, null, null)) {
+        assertNotNull(before);
+        assertTrue(before.moveToFirst());
+        assertEquals(0, before.getInt(0));
+      }
+      engine.runCleanup();
       if (Build.VERSION.SDK_INT >= 30) {
         assertEquals("uploaded", store.files("id=?", id).get(0).state);
         Bundle query = new Bundle();

@@ -56,6 +56,8 @@ public final class TransferService extends Service {
     TransferEngine.pauseReason = "已暂停，可继续";
     getSharedPreferences("settings", 0).edit().putBoolean("upload_paused", false).apply();
     String batch = i.getStringExtra("batch");
+    String action = i.getAction();
+    String sourceTree = i.getStringExtra("tree");
     boolean cellular = i.getBooleanExtra("cellular", false);
     thread =
         new Thread(
@@ -66,10 +68,10 @@ public final class TransferService extends Service {
               wake.acquire(6 * 60 * 60 * 1000L);
               try {
                 TransferEngine engine = new TransferEngine(this);
-                if (batch != null) {
-                  engine.runImport(batch);
-                  if (engine.wifi()) engine.runUpload(false);
-                } else engine.runUpload(cellular);
+                if ("delete-source".equals(action)) engine.runDeleteSources(sourceTree);
+                else if ("recycle-phone".equals(action)) engine.runCleanup();
+                else if (batch != null) engine.runImport(batch);
+                else engine.runUpload(cellular);
               } catch (Exception e) {
                 TransferEngine.message = TransferEngine.readable(e);
               } finally {

@@ -2,7 +2,6 @@ package com.makewheels.dashcam;
 
 import android.app.*;
 import android.content.*;
-import android.database.Cursor;
 import android.net.*;
 import android.os.*;
 import android.provider.MediaStore;
@@ -32,7 +31,12 @@ final class TransferEngine {
     activeId = "";
     done = total = 0;
     phase = TransferProgress.Phase.IDLE;
-    message = kind.equals("import") ? "准备导入" : "准备上传";
+    message =
+        kind.equals("import")
+            ? "准备拷贝"
+            : kind.equals("delete-source")
+                ? "准备核对并删除卡上视频"
+                : kind.equals("cleanup") ? "准备移入手机回收站" : "准备上传";
   }
 
   static final long RESERVE = 5L * 1024 * 1024 * 1024;
@@ -140,16 +144,24 @@ final class TransferEngine {
     ContentValues ready = new ContentValues();
     ready.put("ready", 1);
     store.getWritableDatabase().update("batches", ready, "id=?", new String[] {batch});
-    boolean remove = false;
-    try (Cursor c =
-        store
-            .getReadableDatabase()
-            .rawQuery("SELECT delete_source FROM batches WHERE id=?", new String[] {batch})) {
-      if (c.moveToFirst()) remove = c.getInt(0) != 0;
-    }
-    if (remove) {
+    message = "拷贝校验完成；卡上原视频保留";
+  }
+
+  void runDeleteSources(String tree) throws Exception {
+    DocumentFile directory = DocumentFile.fromTreeUri(context, Uri.parse(tree));
+    if (directory == null || !directory.exists() || !directory.canRead())
+      throw new IOException("请连接原 TF 卡并确认目录授权");
+    List<Store.Item> candidates =
+        store.files(
+            "source_deleted=0 AND tree=? AND batch IN (SELECT id FROM batches WHERE ready=1)",
+            tree);
+    begin("delete-source", candidates);
+    LinkedHashSet<String> batches = new LinkedHashSet<>();
+    for (Store.Item item : candidates) batches.add(item.batch);
+    for (String batch : batches) {
       for (Store.Item item : store.files("batch=? AND source_deleted=0", batch)) {
         check(false);
+        if (!directory.exists() || !directory.canRead()) throw new IOException("读卡器已断开，未删除的卡上视频保留");
         DocumentFile source = DocumentFile.fromSingleUri(context, Uri.parse(item.source));
         if (source == null || !source.exists()) {
           ContentValues v = new ContentValues();
@@ -162,6 +174,24 @@ final class TransferEngine {
           ContentValues v = new ContentValues();
           v.put("error", "原文件已变化，未删除");
           store.update(item.id, v);
+          continue;
+        }
+        if (!verified(item) || item.dest == null) continue;
+        try (InputStream local =
+            context.getContentResolver().openInputStream(Uri.parse(item.dest))) {
+          String[] localHash =
+              Digests.hash(
+                  local,
+                  n -> {
+                    check(false);
+                    progress(item.id, "删除前核对手机副本 · " + item.name, n, item.size);
+                  });
+          if (!localHash[0].equals(item.sha)) throw new IOException("手机副本校验不符，卡上原文件保留");
+        } catch (Exception error) {
+          if (error instanceof Paused) throw error;
+          ContentValues retained = new ContentValues();
+          retained.put("error", "手机副本无法完整核对，卡上原文件保留");
+          store.update(item.id, retained);
           continue;
         }
         // Re-read the source at the deletion boundary to avoid deleting replaced content.
@@ -190,7 +220,18 @@ final class TransferEngine {
         store.update(item.id, v);
       }
     }
-    message = "复制与校验完成";
+    int retained = store.files("source_deleted=0 AND tree=? AND batch IN (SELECT id FROM batches WHERE ready=1)", tree).size();
+    message = "卡上删除已处理 " + (candidates.size() - retained) + " 个，保留 " + retained + " 个";
+  }
+
+  void runCleanup() throws Exception {
+    List<Store.Item> items = store.files("state='cleanup_error'");
+    begin("cleanup", items);
+    for (Store.Item item : items) {
+      check(false);
+      cleanup(item);
+    }
+    message = "手机回收站操作结束";
   }
 
   boolean verified(Store.Item i) {
@@ -340,8 +381,7 @@ final class TransferEngine {
       owner = UUID.randomUUID().toString();
       prefs.edit().putString("owner", owner).apply();
     }
-    List<Store.Item> items =
-        store.files("state IN ('ready','uploading','upload_error','cleanup_error')");
+    List<Store.Item> items = store.files("state IN ('ready','uploading','upload_error')");
     begin("upload", items);
     for (Store.Item item : items) {
       check(!item.state.equals("cleanup_error"));
@@ -359,10 +399,7 @@ final class TransferEngine {
   }
 
   void upload(Store.Item item, String owner) throws Exception {
-    if (item.state.equals("cleanup_error")) {
-      cleanup(item);
-      return;
-    }
+    if (item.state.equals("cleanup_error")) return;
     Uri uri = Uri.parse(item.dest);
     String[] local;
     try (InputStream in = context.getContentResolver().openInputStream(uri)) {
@@ -453,7 +490,7 @@ final class TransferEngine {
     // Persist cloud verification before trashing. Retry without re-uploading.
     store.state(item.id, "cleanup_error", "");
     item.state = "cleanup_error";
-    cleanup(item);
+    message = "备份已核验；手机副本保留，可手动移入回收站";
   }
 
   void cleanup(Store.Item item) throws Exception {
