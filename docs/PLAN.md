@@ -249,3 +249,38 @@ Android增加开发applicationIdSuffix `.dev`、开发标签，生产app ID不�
 - 下一步：用户验收真实手机拔插、所选目录权限与统计、删除后刷新和锁屏；模拟器逻辑验证不代替真实OTG/系统存储事件。修改时递增版本，不覆盖已有APK；云函数/数据库/OSS/RAM未改动，iOS仍占位。
 
 - 设备验证37295296372发现首次启动扫描早于onResume，统计先完成但弹窗等待下一轮；已修正为界面进入前台后启动扫描，37295901652复验通过。
+
+## 下一项：App更新下载修复（2026-10-05，用户要求20:51再开始）
+
+- 0.4.3 APK/飞书交付已完成，infra同步提交48f5d5b。用户后续反馈自动更新无法下载，授权必要时在a4.fit新增子域名；以后在App内查看新版本并下载/安装，不再依赖飞书逐版发送。
+- 已实际请求生产更新接口返回的签名APK URL：HTTP400，XML Code=ApkDownloadForbidden。之前验证仅包括更新接口、SDK凭据回读与匿名403，没有验证App使用的签名下载，不能把之前验证称为完整自动更新通过。
+- 阿里云官方0048-00000200/升级通知明确默认公网域名对新Bucket的APK签名下载限制，正规分发需CNAME。当前server/app.py的/updates/android直接用默认bucket.sign_url；MainActivity.checkUpdates每天最多自动检查一次，download无可见进度，installer仍需系统确认，不能承诺普通App静默安装。
+- a4.fit当前DNS托管AliDNS（dns19/dns20.hichina.com）；本机aliyun CLI可用。infra已有记录：cloud-credentials/prod/aliyun凭据具备AliDNS权限，未读取真值，未更改DNS/Bucket/证书/云函数/客户端更新代码。部署工具deploy/function.py当前只注入RUNTIME_KEYS，增加下载域名配置时需同步Infisical与部署脚本，不能暴露密钥。
+- 20:51后继续：先确认OSS CNAME与HTTPS配置可行，尽量不新增常驻服务；必要时创建独立a4.fit子域名并绑定private生产Bucket（开发生产分离），签名下载依然有效、匿名依然拒绝。修复服务端返回地址和App检查/下载进度及安装引导。实际签名GET完整读取并核对大小/SHA；模拟器验证下载→系统安装器，不能只用接口200。发布递增版本，不覆盖0.4.3，记录正式更新链路证据并同步infra。
+- 用户明确暂停至北京时间20:51；此记录只保存接手状态，未开展域名创建或更新实现。
+
+- 已按用户要求注册一次性系统定时续跑：2026-10-05 20:51 Asia/Shanghai，任务local.dashcam-update.once。launchctl已验证注册；本地CLI登录状态和会话存在已验证，尚未执行不代表工作完成。状态/日志/result位置：~/Library/Application Support/TransferTasks/update-20261005；任务执行后删除自身临时runner与LaunchAgent。Mac需保持开机联网，恢复后以started/finished记录确认实际运行。用户无需再次发继续。
+
+## 0.4.4 更新下载域名修复（2026-10-05，已发行并飞书交付）
+
+用户接手继续执行（未等20:51定时任务，任务已提前卸载）。根因确认：阿里云禁止通过Bucket默认公网域名分发APK，签名GET实测HTTP 400 ApkDownloadForbidden，官方唯一正规解是绑定自定义域名。
+
+云资源（均已实测）：
+- DNS（a4.fit，阿里云解析）：`dashcam-transfer-{prod,dev}.oss.aliyun` CNAME到对应bucket默认域名；所有权验证用`_dnsauth.*` TXT记录，验证通过后已删除。
+- OSS绑定：ossutil不支持，用oss2 `put_bucket_cname(PutBucketCnameRequest)` 提交成功；`list_bucket_cname`回读确认。
+- HTTPS证书：Let's Encrypt ECC SAN证书覆盖两个下载域名（acme.sh dns_ali DNS-01），首次签发即由reloadcmd上传；重绑脚本`~/.acme.sh/rebind-dashcam-oss-cert.sh`在续期后自动重新绑定两个bucket（XML需含Domain元素，首次漏写导致MalformedXML已修复）。证书上传到OSS边缘有分钟级延迟，立即访问会短暂看到默认证书。
+
+服务端与客户端：
+- `server/app.py`：新增`DASHCAM_DOWNLOAD_DOMAIN`（可选）。设置后用该域名的cname bucket（oss2 is_cname=True，V1签名CanonicalizedResource不含bucket名）签下载类GET URL（APK与视频下载）；上传分片签名保持默认域名。未配置时行为不变，测试注入mock不受影响。
+- `deploy/function.py`：RUNTIME_KEYS增加该键（可缺失，默认空串）。Infisical tools dev/prod /dashcam 已写入并回读验证。
+- `MainActivity`：更新下载改为进度对话框（百分比、已下载/总量、可取消，取消即中断并删除临时文件），完成后照常SHA-256校验再进安装引导。签名过期/链接失效仍提示重新检查更新。
+- 云函数dev/prod均已重新部署；dev的runtime RAM无releases写权限（最小权限正确），dev验证为接口正常响应available=false。
+
+链路验证证据：匿名GET自定义域名403；默认域名签名GET仍400 ApkDownloadForbidden（限制仍在）；签名GET自定义域名200且SHA-256与manifest一致；篡改签名参数403。生产`/updates/android`返回0.4.4/code 4004/域名为自定义域名，完整下载5352928字节SHA `8e7bc2ba8ab56e630a4cf279e523b60a66868369bd1026a15706b37789413c00`与manifest一致。
+
+发行与交付：
+- 源码494f976推送，CI 37303112746与发行37303116740成功；v0.4.4/code 4004，安装包5352928字节，同0.4.3签名。飞书APK+说明发送成功，message_id `om_x100b630ce276eca0c4b620087cec40e`，群内可下载。
+- 应用户要求补齐GitHub Release：v0.1.0至v0.4.4共9个版本均带版本说明（安装包仍只在私有OSS，不放公开附件，原因：APK内嵌受限服务凭据，公开附件会扩大可访问私有存储的客户端分发面）。Latest标记为v0.4.4。
+- 以后版本release.yml自动创建带描述的GitHub Release：发布tag用annotated tag，CI读取tag说明作为`DASHCAM_RELEASE_NOTES`（OSS manifest notes）与Release正文；workflow权限改为contents:write仅用于创建Release文本。
+- 验收边界：模拟器未再验证App内下载→安装（本机磁盘与时间限制）；真实链路以HTTP层完整下载核对为准。用户在0.4.3上「检查更新→下载安装0.4.4」即真实验证新域名链路；装上0.4.4后可见新进度对话框。真机OTG/锁屏/实际吞吐仍待用户验收。iOS仍占位。
+- 本次20:51一次性LaunchAgent `local.dashcam-update.once` 已提前完成工作并卸载，未触发。

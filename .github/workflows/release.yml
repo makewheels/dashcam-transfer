@@ -3,7 +3,7 @@ on:
   push:
     tags: ['v*']
 permissions:
-  contents: read
+  contents: write
 concurrency:
   group: android-release
   cancel-in-progress: false
@@ -38,5 +38,17 @@ jobs:
           trap 'rm -f "$task_dir/app.apk"; rmdir "$task_dir"' EXIT
           export DASHCAM_VERSION_NAME="${GITHUB_REF_NAME#v}"
           export DASHCAM_VERSION_CODE=$(python -c 'import os,re; v=os.environ["DASHCAM_VERSION_NAME"]; assert re.fullmatch(r"\d+\.\d+\.\d+",v); a,b,c=map(int,v.split(".")); assert b<1000 and c<1000; print(a*1000000+b*1000+c)')
+          notes=$(git tag -l --format='%(contents:body)' "$GITHUB_REF_NAME" | grep -v 'Co-Authored-By' | sed -e '/./,$!d')
+          {
+            echo "DASHCAM_RELEASE_NOTES<<NOTES_EOF"
+            echo "${notes:-改进行车视频转存}"
+            echo "NOTES_EOF"
+          } >> "$GITHUB_ENV"
           python deploy/build_android.py release "$task_dir/app.apk"
           uv run --project deploy deploy/release.py "$task_dir/app.apk"
+      - name: 创建版本说明 Release（安装包在私有 OSS，不放公开附件）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --title "${GITHUB_REF_NAME#v} 更新" --notes-file - <<< "${DASHCAM_RELEASE_NOTES:-改进行车视频转存}" \
+            || gh release edit "$GITHUB_REF_NAME" --notes-file - <<< "${DASHCAM_RELEASE_NOTES:-改进行车视频转存}"
