@@ -82,7 +82,6 @@ public class CopyFlowTest {
             assertEquals("100%", activity.homeTask.percent.getText().toString());
             assertTrue(activity.homeTask.action.getText().toString().contains("下一步"));
             assertTrue(activity.liveHint.getText().toString().contains("第一步已完成"));
-            assertFalse(activity.ejectButton.isEnabled() && TransferEngine.BUSY.get());
           });
       new UiFlowTest().shot("copy-complete");
       i.runOnMainSync(() -> activity.homeTask.action.performClick());

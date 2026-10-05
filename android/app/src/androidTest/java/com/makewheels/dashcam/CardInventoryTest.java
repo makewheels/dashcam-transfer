@@ -53,7 +53,6 @@ public class CardInventoryTest {
         activity.refresh();
         assertEquals("", activity.inventorySummary);
         assertFalse(activity.inventoryDialog.isShowing());
-        assertFalse(activity.ejectButton.isEnabled());
       });
     } finally {
       try { DocumentsContract.deleteDocument(c.getContentResolver(), file); }

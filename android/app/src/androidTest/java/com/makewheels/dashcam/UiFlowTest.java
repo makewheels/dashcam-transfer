@@ -86,7 +86,6 @@ public class UiFlowTest {
             assertTrue(contains(activity.root, "拷贝到手机"));
             assertFalse(contains(activity.root, "待上传"));
             assertTrue(contains(activity.root, "删除卡上已拷贝的视频"));
-            assertTrue(contains(activity.root, "下一步"));
             assertFalse(contains(activity.root, "设置"));
             assertTrue(contains(activity.root, "TF 卡"));
           });
@@ -168,7 +167,6 @@ public class UiFlowTest {
           () -> {
             assertEquals(0, ((android.widget.ScrollView) activity.pages[0]).getScrollY());
             assertEquals("6%", activity.homeTask.percent.getText().toString());
-            assertFalse(activity.ejectButton.isEnabled());
             assertTrue(activity.homeTask.totalEta.getText().toString().startsWith("约 "));
             assertFalse(contains(activity.root, "当前阶段剩余"));
             assertFalse(contains(activity.root, "当前文件剩余"));

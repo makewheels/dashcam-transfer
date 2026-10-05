@@ -34,7 +34,7 @@ public final class MainActivity extends Activity {
       homePause,
       liveHint,
       batchStatus;
-  TextView deleteCardButton, recycleButton, nextButton, ejectButton;
+  TextView deleteCardButton, recycleButton, chooseButton;
   LinearLayout steps;
   TextView firstStep, secondStep;
   ProgressBar stepConnector;
@@ -56,15 +56,12 @@ public final class MainActivity extends Activity {
   String batchNext = null;
   final ExecutorService executor = Executors.newSingleThreadExecutor();
   final Handler handler = new Handler(Looper.getMainLooper());
-  final View[] pages = new View[5];
-  final TextView[] navLabels = new TextView[5];
-  final ImageView[] navIcons = new ImageView[5];
+  final View[] pages = new View[4];
   LinearLayout queueControls;
   TextView queueAction, queuePause;
   TextView heading,
       subtitle,
       network,
-      deviceBanner,
       guideStep,
       guideTitle,
       guideBody,
@@ -121,8 +118,6 @@ public final class MainActivity extends Activity {
     LinearLayout line = ui.row();
     heading = ui.bold("开始", 22, Ui.INK);
     line.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
-    network = ui.chip("", Ui.GREEN, 0xffe7f5ed);
-    line.addView(network);
     TextView more = ui.bold("⋯", 24, Ui.INK);
     more.setPadding(dp(12), dp(4), 0, dp(4));
     more.setContentDescription("更多：历史与更新");
@@ -134,8 +129,12 @@ public final class MainActivity extends Activity {
     root.addView(header);
     steps = ui.row();
     steps.setPadding(dp(24), 0, dp(24), dp(14));
-    firstStep = ui.bold("① 拷贝到手机", 13, Ui.BLUE);
-    secondStep = ui.bold("② 上传云端", 13, Ui.MUTED);
+    firstStep = ui.bold("① 拷贝到手机", 15, Ui.BLUE);
+    firstStep.setPadding(dp(4), dp(10), dp(12), dp(10));
+    firstStep.setOnClickListener(v -> selectTab(0));
+    secondStep = ui.bold("② 上传云端", 15, Ui.MUTED);
+    secondStep.setPadding(dp(12), dp(10), dp(4), dp(10));
+    secondStep.setOnClickListener(v -> selectTab(1));
     steps.addView(firstStep);
     stepConnector = ui.bar();
     LinearLayout.LayoutParams connector = new LinearLayout.LayoutParams(0, dp(4), 1);
@@ -143,18 +142,12 @@ public final class MainActivity extends Activity {
     steps.addView(stepConnector, connector);
     steps.addView(secondStep);
     root.addView(steps);
-    deviceBanner = ui.button("", false, this::choose);
-    deviceBanner.setVisibility(View.GONE);
-    LinearLayout.LayoutParams banner = new LinearLayout.LayoutParams(-1, -2);
-    banner.setMargins(dp(24), 0, dp(24), dp(12));
-    root.addView(deviceBanner, banner);
     FrameLayout container = new FrameLayout(this);
     root.addView(container, new LinearLayout.LayoutParams(-1, 0, 1));
     pages[0] = homePage();
     pages[1] = queuePage();
     pages[2] = batchPage();
     pages[3] = cloudPage();
-    pages[4] = settingsPage();
     for (View page : pages) container.addView(page, new FrameLayout.LayoutParams(-1, -1));
 
     selectTab(0);
@@ -182,7 +175,8 @@ public final class MainActivity extends Activity {
     source = text("", 14, Ui.INK);
     source.setTextIsSelectable(true);
     ui.add(sourceCard, source, 18);
-    ui.add(sourceCard, button("选择 / 更换视频文件夹", this::choose), 14);
+    chooseButton = ui.button("选择视频文件夹", true, this::choose);
+    ui.add(sourceCard, chooseButton, 14);
     space = text("", 12, Ui.MUTED);
     ui.add(sourceCard, space, 12);
     ui.add(content, sourceCard, 0);
@@ -192,12 +186,7 @@ public final class MainActivity extends Activity {
     ui.add(content, copyButton, 18);
     deleteCardButton = ui.button("删除卡上已拷贝的视频", false, this::deleteCard);
     ui.add(content, deleteCardButton, 12);
-    nextButton = ui.button("下一步：上传云端 →", false, () -> selectTab(1));
-    ui.add(content, nextButton, 12);
     homePause = ui.button("暂停", false, () -> TransferEngine.stop(this));
-
-    ejectButton = ui.button("安全弹出 TF 卡", false, this::ejectCard);
-    ui.add(content, ejectButton, 12);
     return scroll(content);
   }
 
@@ -205,10 +194,20 @@ public final class MainActivity extends Activity {
     new AlertDialog.Builder(this)
         .setTitle("更多")
         .setItems(
-            new String[] {"历史批次", "检查更新 · " + BuildConfig.VERSION_NAME, "通知与后台运行设置"},
+            new String[] {
+              "历史批次",
+              "云端视频",
+              "更换视频文件夹",
+              "安全弹出 TF 卡",
+              "检查更新 · " + BuildConfig.VERSION_NAME,
+              "通知与后台运行设置"
+            },
             (d, index) -> {
               if (index == 0) selectTab(2);
-              else if (index == 1) updates();
+              else if (index == 1) selectTab(3);
+              else if (index == 2) choose();
+              else if (index == 3) ejectCard();
+              else if (index == 4) updates();
               else backgroundSettings();
             })
         .setNegativeButton("关闭", null)
@@ -299,7 +298,6 @@ public final class MainActivity extends Activity {
 
   View batchPage() {
     LinearLayout content = ui.column();
-    ui.add(content, button("← 返回拷贝", () -> selectTab(0)), 0);
     LinearLayout intro = ui.card();
     LinearLayout row = ui.row();
     row.addView(ui.bold("之前的批次", 21, Ui.INK), new LinearLayout.LayoutParams(0, -2, 1));
@@ -611,6 +609,10 @@ public final class MainActivity extends Activity {
 
   View queuePage() {
     LinearLayout content = ui.column();
+    LinearLayout netCard = ui.card();
+    network = ui.chip("", Ui.GREEN, 0xffe7f5ed);
+    netCard.addView(network);
+    ui.add(content, netCard, 0);
     uploadTask = new TaskCard("整批上传进度");
     ui.add(content, uploadTask.card, 0);
     LinearLayout intro = ui.card();
@@ -633,7 +635,6 @@ public final class MainActivity extends Activity {
     ui.add(content, intro, 0);
     recycleButton = ui.button("移入手机回收站", false, this::recyclePhone);
     ui.add(content, recycleButton, 12);
-    ui.add(content, button("← 返回拷贝", () -> selectTab(0)), 12);
 
     list = ui.column();
     ui.add(content, list, 20);
@@ -652,13 +653,6 @@ public final class MainActivity extends Activity {
     ui.add(content, card, 0);
     cloudList = ui.column();
     ui.add(content, cloudList, 20);
-    return scroll(content);
-  }
-
-  View settingsPage() {
-    LinearLayout content = ui.column();
-    ui.add(content, text("所有拷贝、删除、上传和回收站操作都由按钮手动开始。", 15, Ui.INK), 0);
-    ui.add(content, button("检查更新", this::updates), 16);
     return scroll(content);
   }
 
@@ -681,11 +675,10 @@ public final class MainActivity extends Activity {
 
   void selectTab(int selected) {
     tab = selected;
-    String[] titles = {"① 拷贝到手机", "② 上传云端", "历史批次", "云端", "设置"},
+    String[] titles = {"① 拷贝到手机", "② 上传云端", "历史批次", "云端"},
         sub =
-            {"拷贝完成后，再决定是否删除卡上视频", "点上传开始备份，完成后再决定清理手机", "按每次导入时间查看记录", "已完成校验的云端视频", "按你的习惯调整转存方式"},
-        icons = {"start", "upload", "history", "cloud", "settings"};
-    for (int i = 0; i < 5; i++) {
+            {"拷贝完成后，再决定是否删除卡上视频", "点上传开始备份，完成后再决定清理手机", "按每次导入时间查看记录", "已完成校验的云端视频"};
+    for (int i = 0; i < 4; i++) {
       pages[i].setVisibility(i == tab ? View.VISIBLE : View.GONE);
     }
     steps.setVisibility(tab < 2 ? View.VISIBLE : View.GONE);
@@ -828,7 +821,6 @@ public final class MainActivity extends Activity {
           if (!Intent.ACTION_MEDIA_MOUNTED.equals(i.getAction()) && cardPresent) {
             cardPresent = false;
             clearInventory();
-            deviceBanner.setVisibility(View.GONE);
             toast("读卡器已断开，重新连接后可继续导入");
             if (TransferEngine.BUSY.get()
                 && Arrays.asList("import", "delete-source").contains(TransferEngine.taskKind)) {
@@ -890,7 +882,6 @@ public final class MainActivity extends Activity {
             readerPresent = true;
     if (notify && cardPresent && !before) {
       toast("检测到读卡器，请选择 TF 卡的视频文件夹");
-      deviceBanner.setText("已检测到 " + cardName + " · 选择视频文件夹");
     } else if (notify && !cardPresent && before) {
       toast("读卡器已断开，重新连接后可继续导入");
     }
@@ -1000,12 +991,11 @@ public final class MainActivity extends Activity {
       sourceName = SourcePath.display(this, Uri.parse(tree));
     } else sourceName = "尚未选择文件夹";
     source.setText(sourceName);
+    chooseButton.setVisibility(tree != null ? View.GONE : View.VISIBLE);
     space.setText("可用 " + TransferEngine.bytes(TransferEngine.free(this)) + " · 始终预留 5 GB");
     TransferEngine engine = connectivity;
     network.setText(engine.wifi() ? "Wi-Fi 已连接" : engine.connected() ? "移动网络" : "未联网");
     network.setTextColor(engine.wifi() ? Ui.GREEN : Ui.MUTED);
-    deviceBanner.setVisibility(View.GONE);
-    deviceBanner.setText("已发现 " + cardName + " · 选择 / 更换视频文件夹");
     List<Store.Item> files = local();
     long bytes = 0;
     int ready = 0;
@@ -1128,8 +1118,6 @@ public final class MainActivity extends Activity {
         && "import".equals(TransferEngine.taskKind)) {
       liveHint.setText("第一步已完成：视频已拷贝并校验。下一步上传云端。卡上原视频可按需手动删除。");
     }
-    ejectButton.setEnabled(!busy && !scanning && cardPresent);
-    ejectButton.setAlpha(!busy && !scanning && cardPresent ? 1f : .45f);
     if (tab == 2 && !batchesLoading) renderBatches();
   }
 

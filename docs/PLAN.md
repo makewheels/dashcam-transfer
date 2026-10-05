@@ -284,3 +284,15 @@ Android增加开发applicationIdSuffix `.dev`、开发标签，生产app ID不�
 - 以后版本release.yml自动创建带描述的GitHub Release：发布tag用annotated tag，CI读取tag说明作为`DASHCAM_RELEASE_NOTES`（OSS manifest notes）与Release正文；workflow权限改为contents:write仅用于创建Release文本。
 - 验收边界：模拟器未再验证App内下载→安装（本机磁盘与时间限制）；真实链路以HTTP层完整下载核对为准。用户在0.4.3上「检查更新→下载安装0.4.4」即真实验证新域名链路；装上0.4.4后可见新进度对话框。真机OTG/锁屏/实际吞吐仍待用户验收。iOS仍占位。
 - 本次20:51一次性LaunchAgent `local.dashcam-update.once` 已提前完成工作并卸载，未触发。
+
+## 0.4.5 首页极简两步结构（2026-10-05，发行中）
+
+用户反馈0.4.4首页仍堆砌（下一步/安全弹出/常驻换目录按钮等），要求拷贝页只有检测卡、拷贝、删除三件事，上传页只有上传的事。
+
+- 顶部①②步骤条可点击直接切换两页；拷贝页仅保留：卡状态卡（含完整路径与空间）、引导文案、拷贝按钮、删除按钮、任务运行时进度卡与暂停；「选择视频文件夹」按钮只在未授权目录时显示在卡内，已授权后隐藏，换目录收进更多菜单。
+- 「下一步：上传云端」「安全弹出 TF 卡」常驻按钮从首页移除；网络状态chip从头部移到上传页顶部；上传页与批次页删除「返回拷贝」按钮（顶部步骤与返回键均可回）；设置页（tab 4）删除，其唯一功能「检查更新」已在更多菜单。
+- 更多菜单扩为：历史批次、云端视频、更换视频文件夹、安全弹出 TF 卡、检查更新、通知与后台运行设置。历史遗留死元素deviceBanner删除。
+- TaskCard完成后的动态引导（下一步上传/安全弹出/移入回收站）保留——它属于任务流程反馈，不是常驻杂物。
+- 模拟器验证：0.4.3→0.4.4 App内更新全链路实测通过（自动弹窗→下载→未知来源授权→系统安装器→versionName=0.4.4），下载走新域名约3秒完成。新UI截图验证首页/上传页/更多菜单符合预期。过程中发现并修复queuePage网络chip空引用崩溃（network创建语句随header移动时丢失）；本地模拟器受12GB userdata限制，用-partition-size 4096启动成功。
+- uiautomator dump/screencap验证时曾被com.makewheels.dashcam正式版前台窗口误导（.dev首启崩溃退回），以topResumedActivity确认前台包名是排查关键；dexdump/strings对中文MUTF-8不可用，验证APK内容用python字节搜索。
+- debug构建/lint/单测本地通过；设备测试交由GitHub Actions隔离验证。版本0.4.5/code 4005。
