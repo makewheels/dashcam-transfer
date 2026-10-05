@@ -349,3 +349,5 @@ Android增加开发applicationIdSuffix `.dev`、开发标签，生产app ID不�
 ## 0.5.1 启动必检更新（2026-10-06）
 
 用户要求启动即检测新版本并弹窗。原有每日一次限流（update_checked）移除：每次启动静默检查（checkUpdates(true)），发现新版本即弹「下载并安装」，已是最新不提示。checkUpdates的弹窗/下载/安装逻辑不变。debug构建/lint/单测通过。版本0.5.1/code 5001。
+
+- 0.5.1交付：设备测试37385229663全绿；发行37385772597成功；APK SHA-256与manifest一致（curl验证，github/FC网络多次间歇超时）；Release标题正确；飞书message_id `om_x100b63768d7628a8c38f50bb12b08bb`。期间github.com多次443超时，重推后成功。
