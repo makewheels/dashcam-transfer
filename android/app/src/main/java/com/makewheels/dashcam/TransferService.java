@@ -27,7 +27,7 @@ public final class TransferService extends Service {
             new Intent(c, TransferService.class).setAction("pause"),
             PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
     return new Notification.Builder(c, CHANNEL)
-        .setSmallIcon(com.makewheels.dashcam.R.drawable.ic_launcher)
+        .setSmallIcon(com.makewheels.dashcam.R.drawable.ic_notification)
         .setContentTitle(TransferEngine.message)
         .setContentText(TransferEngine.detail())
         .setContentIntent(open)

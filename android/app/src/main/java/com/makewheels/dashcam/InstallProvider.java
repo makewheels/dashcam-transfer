@@ -35,7 +35,7 @@ public final class InstallProvider extends ContentProvider {
       File f = file(u);
       MatrixCursor c =
           new MatrixCursor(new String[] {OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE});
-      c.addRow(new Object[] {"行车转存.apk", f.length()});
+      c.addRow(new Object[] {"行车记录仪转存.apk", f.length()});
       return c;
     } catch (Exception e) {
       return null;
