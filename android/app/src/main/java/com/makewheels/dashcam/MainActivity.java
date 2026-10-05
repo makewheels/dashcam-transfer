@@ -214,7 +214,7 @@ public final class MainActivity extends Activity {
         .setTitle("放弃上次任务？")
         .setMessage(
             "上次拷贝的 " + pending.size() + " 个视频（" + TransferEngine.bytes(bytes)
-                + "）的手机副本会移入系统回收站，不永久删除。TF 卡上的原视频不受影响，已上传到云端的不受影响。放弃后可重新插卡拷贝。")
+                + "）的手机副本会被删除（存储在应用私有目录，云端与 TF 卡原视频都不受影响）。放弃后可重新插卡拷贝。")
         .setNegativeButton("保留", null)
         .setPositiveButton("放弃并重新开始", (d, w) -> explicitAction("abandon"))
         .show();
@@ -336,10 +336,10 @@ public final class MainActivity extends Activity {
 
   void recyclePhone() {
     new AlertDialog.Builder(this)
-        .setTitle("移入手机回收站？")
-        .setMessage("仅处理云端已核验完成的视频，手机副本移入系统回收站，不永久删除。回收站仍占空间，保留期限由系统管理。")
+        .setTitle("删除手机副本？")
+        .setMessage("仅处理云端已核验完成的视频：手机上的副本会从应用私有目录中删除，云端视频不受影响。")
         .setNegativeButton("保留", null)
-        .setPositiveButton("移入回收站", (d, w) -> explicitAction("recycle-phone"))
+        .setPositiveButton("删除副本", (d, w) -> explicitAction("recycle-phone"))
         .show();
   }
 
@@ -687,7 +687,7 @@ public final class MainActivity extends Activity {
     actions.addView(pause, p);
     ui.add(intro, actions, 18);
     ui.add(content, intro, 0);
-    recycleButton = ui.button("移入手机回收站", false, this::recyclePhone);
+    recycleButton = ui.button("删除手机副本", false, this::recyclePhone);
     ui.add(content, recycleButton, 12);
 
     list = ui.column();
@@ -777,7 +777,7 @@ public final class MainActivity extends Activity {
             {
               "将 TF 卡插进读卡器，再连接手机。\n检测到读卡器后，选择存放视频的文件夹。",
               "点击「开始导入」，查看复制和校验进度。\n整批校验成功后，才清理 TF 卡原视频。",
-              "点击上传后开始备份。\n云端核验完成后，可手动移入手机回收站。"
+              "点击上传后开始备份。\n云端核验完成后，可手动删除手机副本。"
             },
         icons = {"folder", "check", "cloud"};
     Runnable render =
@@ -1160,7 +1160,7 @@ public final class MainActivity extends Activity {
           Arrays.asList("import", "delete-source").contains(TransferEngine.taskKind)
               ? "正在拷贝、核对或删除，请保持 TF 卡连接。"
               : "abandon".equals(TransferEngine.taskKind)
-                  ? "正在放弃上次任务，手机副本移入回收站。"
+                  ? "正在放弃上次任务，手机副本将被删除。"
                   : "第二页任务正在进行，请到上传页面查看。",
           HINT_BLUE);
     else if (files.stream()
@@ -1423,7 +1423,7 @@ public final class MainActivity extends Activity {
                   ? "下一步：上传云端 →"
                   : completed && deleting
                       ? "安全弹出 TF 卡"
-                      : completed && !cleaning ? "移入手机回收站" : "继续当前操作");
+                      : completed && !cleaning ? "删除手机副本" : "继续当前操作");
       action.setVisibility(!busy && completed && cleaning ? View.GONE : View.VISIBLE);
     }
   }

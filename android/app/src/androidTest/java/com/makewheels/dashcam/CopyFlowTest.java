@@ -90,7 +90,10 @@ public class CopyFlowTest {
     } finally {
       TransferEngine.stopped = true;
       for (Store.Item file : activity.store.files("name=?", name)) {
-        if (file.dest != null) resolver.delete(Uri.parse(file.dest), null, null);
+        if (file.dest != null) {
+          if (file.dest.startsWith("content:")) resolver.delete(Uri.parse(file.dest), null, null);
+          else new java.io.File(file.dest).delete();
+        }
         activity.store.getWritableDatabase().delete("files", "id=?", new String[] {file.id});
         activity.store.getWritableDatabase().delete("batches", "id=?", new String[] {file.batch});
       }

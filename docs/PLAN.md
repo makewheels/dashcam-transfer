@@ -335,3 +335,13 @@ Android增加开发applicationIdSuffix `.dev`、开发标签，生产app ID不�
 - 未完成任务reset能力0.4.7已具备（放弃按钮+确认框+回收站+记录清理），本版不改。
 - 纯布局删减，编译/lint/单测通过；本地模拟器因磁盘余量不足未再起，UI流程回归交由CI设备测试。
 - 源码019f4ad，发行37316995801成功；正式APK 5356820字节、SHA-256 `ae0cd28dc42cab5d82749bff87703993c5a8fca49999da3dd0691704a49a70a3`，0.4.9/code 4009、同签名；生产更新接口核对一致并完整下载验证；Release标题「0.4.9 更极简」正确读取tag说明。飞书APK+说明发送成功，message_id `om_x100b630e2208f0acc3d8a328ff5430a`。
+
+## 0.5.0 手机副本改为应用私有目录（2026-10-05，验证中）
+
+用户改需求：副本不再放共享媒体目录（相册可见、Movies/行车视频），改存应用私有位置，相册不可见、卸载/清理即消失。
+
+- TransferEngine新增openDestFd/openDestInput/removeDest兼容层：新副本写入`getExternalFilesDir/videos/北京时间_批次8位/原文件名`（App私有，MediaStore不再介入，无IS_PENDING）；旧版本生成的MediaStore副本仍按content URI继续可用（上传/清理/回收站不变），直到用户主动清理。
+- copy目标改文件路径；校验/分片读取/上传前核对/删除前核对统一走新helper；cleanup从「移入系统回收站」改为「核对后直接删除」（旧MediaStore副本仍走回收站）；abandon同样直接删除。
+- 文案：「移入手机回收站」→「删除手机副本」，确认框说明副本存于应用私有目录、云端与TF卡不受影响。
+- CopyFlowTest的finally清理适配文件路径dest。设备测试发现本机模拟器缺sdcard镜像导致CardInventoryTest/UiFlowTest失败（0.4.3在本机同样失败，非代码回归，CI环境有sdcard而本地AVD未生成）；修复后以CI设备测试为准（workflow_dispatch手动触发）。
+- debug构建/lint/单测通过。版本0.5.0/code 5000。

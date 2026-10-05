@@ -50,6 +50,48 @@ final class TransferEngine {
   final android.content.SharedPreferences prefs;
   boolean manualCellular = false;
 
+  /** New copies live in app-private storage; MediaStore copies from older versions stay URI-backed. */
+  static boolean destIsUri(String dest) {
+    return dest.startsWith("content:");
+  }
+
+  ParcelFileDescriptor openDestFd(String dest, boolean write) throws IOException {
+    if (destIsUri(dest)) {
+      return context.getContentResolver()
+          .openFileDescriptor(Uri.parse(dest), write ? "rw" : "r");
+    }
+    File file = new File(dest);
+    File dir = file.getParentFile();
+    if (dir != null && !dir.isDirectory()) dir.mkdirs();
+    return ParcelFileDescriptor.open(
+        file,
+        write
+            ? ParcelFileDescriptor.MODE_READ_WRITE | ParcelFileDescriptor.MODE_CREATE
+            : ParcelFileDescriptor.MODE_READ_ONLY);
+  }
+
+  InputStream openDestInput(String dest) throws IOException {
+    return destIsUri(dest)
+        ? context.getContentResolver().openInputStream(Uri.parse(dest))
+        : new FileInputStream(new File(dest));
+  }
+
+  /** Delete a finished local copy: app-private files unlink directly, legacy MediaStore copies go to trash. */
+  boolean removeDest(Store.Item item) {
+    String dest = item.dest;
+    if (destIsUri(dest)) {
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false;
+      ContentValues trash = new ContentValues();
+      trash.put(MediaStore.MediaColumns.IS_TRASHED, 1);
+      try {
+        return context.getContentResolver().update(Uri.parse(dest), trash, null, null) > 0;
+      } catch (Exception e) {
+        return false;
+      }
+    }
+    return new File(dest).delete();
+  }
+
   TransferEngine(Context c) {
     context = c.getApplicationContext();
     store = new Store(context);
@@ -182,8 +224,7 @@ final class TransferEngine {
           continue;
         }
         if (!verified(item) || item.dest == null) continue;
-        try (InputStream local =
-            context.getContentResolver().openInputStream(Uri.parse(item.dest))) {
+        try (InputStream local = openDestInput(item.dest)) {
           String[] localHash =
               Digests.hash(
                   local,
@@ -260,16 +301,7 @@ final class TransferEngine {
       check(false);
       if (item.dest != null) {
         try {
-          Uri uri = Uri.parse(item.dest);
-          ContentValues trash = new ContentValues();
-          trash.put(MediaStore.MediaColumns.IS_TRASHED, 1);
-          boolean gone =
-              Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
-                  && context.getContentResolver().update(uri, trash, null, null) > 0;
-          // Trash is preferred; deleting an unfinished copy only if trashing is unavailable.
-          if (!gone && Build.VERSION.SDK_INT < Build.VERSION_CODES.R)
-            gone = context.getContentResolver().delete(uri, null, null) > 0;
-          if (!gone) failed++;
+          if (!removeDest(item)) failed++;
         } catch (Exception e) {
           failed++;
         }
@@ -281,7 +313,7 @@ final class TransferEngine {
       if (store.files("batch=?", batch).isEmpty()) store.deleteBatch(batch);
     message =
         failed > 0
-            ? "任务已放弃；" + failed + " 个手机副本清理失败，可在文件管理器删除"
+            ? "任务已放弃；" + failed + " 个手机副本清理失败，可在清理存储时删除"
             : "已放弃上次任务，可重新插卡拷贝";
   }
 
@@ -294,8 +326,7 @@ final class TransferEngine {
 
   long validOffset(Store.Item i) {
     if (i.dest == null) return 0;
-    try (ParcelFileDescriptor p =
-        context.getContentResolver().openFileDescriptor(Uri.parse(i.dest), "r")) {
+    try (ParcelFileDescriptor p = openDestFd(i.dest, false)) {
       return Math.min(i.offset, Math.min(p.getStatSize(), i.size));
     } catch (Exception e) {
       return 0;
@@ -309,41 +340,34 @@ final class TransferEngine {
     if (source.length() != item.size
         || (item.modified > 0 && source.lastModified() != item.modified))
       throw new IOException("原文件已变化，请重新扫描");
-    Uri target = item.dest == null ? null : Uri.parse(item.dest);
-    if (target != null) {
-      try (ParcelFileDescriptor ignored = resolver.openFileDescriptor(target, "rw")) {
+    if (item.dest != null) {
+      try (ParcelFileDescriptor ignored = openDestFd(item.dest, true)) {
       } catch (Exception e) {
-        target = null;
+        item.dest = null;
       }
     }
-    if (target == null) {
-      ContentValues v = new ContentValues();
-      v.put(MediaStore.Video.Media.DISPLAY_NAME, item.name);
-      String type = URLConnection.guessContentTypeFromName(item.name);
-      v.put(
-          MediaStore.Video.Media.MIME_TYPE,
-          type != null && type.startsWith("video/") ? type : "video/mp4");
-      // A unique directory prevents overwriting a same-name video from another import.
-      v.put(
-          MediaStore.Video.Media.RELATIVE_PATH,
-          "Movies/行车视频/"
-              + (item.importTime != null ? item.importTime : item.date)
-              + "_"
-              + item.batch.substring(0, 8));
-      v.put(MediaStore.Video.Media.IS_PENDING, 1);
-      target = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, v);
-      if (target == null) throw new IOException("无法创建手机视频文件");
+    if (item.dest == null) {
+      // App-private storage: invisible to the gallery, wiped with the app; never a shared MediaStore path.
+      File dir =
+          new File(
+              context.getExternalFilesDir(null),
+              "videos/"
+                  + (item.importTime != null ? item.importTime : item.date)
+                  + "_"
+                  + item.batch.substring(0, 8));
+      if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("无法创建手机视频目录");
+      String destPath = new File(dir, item.name).getAbsolutePath();
       ContentValues saved = new ContentValues();
-      saved.put("dest", target.toString());
+      saved.put("dest", destPath);
       saved.put("offset", 0);
       store.update(item.id, saved);
       item.offset = 0;
-      item.dest = target.toString();
+      item.dest = destPath;
     }
     store.state(item.id, "copying", "");
     long offset = validOffset(item);
     try (ParcelFileDescriptor src = resolver.openFileDescriptor(Uri.parse(item.source), "r");
-        ParcelFileDescriptor dst = resolver.openFileDescriptor(target, "rw");
+        ParcelFileDescriptor dst = openDestFd(item.dest, true);
         FileInputStream in = new FileInputStream(src.getFileDescriptor());
         FileOutputStream out = new FileOutputStream(dst.getFileDescriptor())) {
       FileChannel dest = out.getChannel();
@@ -397,7 +421,7 @@ final class TransferEngine {
                 progress(item.id, "校验 TF 卡 · " + item.name, n, item.size);
               });
     }
-    try (InputStream in = resolver.openInputStream(target)) {
+    try (InputStream in = openDestInput(item.dest)) {
       local =
           Digests.hash(
               in,
@@ -414,9 +438,12 @@ final class TransferEngine {
       store.update(item.id, reset);
       throw new IOException("内容校验失败，原文件保留，继续将重新复制");
     }
-    ContentValues published = new ContentValues();
-    published.put(MediaStore.Video.Media.IS_PENDING, 0);
-    resolver.update(target, published, null, null);
+    if (destIsUri(item.dest)) {
+      // Legacy MediaStore copy: publish it only after verification.
+      ContentValues published = new ContentValues();
+      published.put(MediaStore.Video.Media.IS_PENDING, 0);
+      resolver.update(Uri.parse(item.dest), published, null, null);
+    }
     ContentValues v = new ContentValues();
     v.put("sha", local[0]);
     v.put("crc", local[1]);
@@ -451,9 +478,8 @@ final class TransferEngine {
 
   void upload(Store.Item item, String owner) throws Exception {
     if (item.state.equals("cleanup_error")) return;
-    Uri uri = Uri.parse(item.dest);
     String[] local;
-    try (InputStream in = context.getContentResolver().openInputStream(uri)) {
+    try (InputStream in = openDestInput(item.dest)) {
       local =
           Digests.hash(
               in,
@@ -492,7 +518,7 @@ final class TransferEngine {
       }
       int count = (int) ((item.size + partSize - 1) / partSize);
       progress(item.id, "上传 · " + item.name, completedBytes, item.size);
-      try (ParcelFileDescriptor fd = context.getContentResolver().openFileDescriptor(uri, "r");
+      try (ParcelFileDescriptor fd = openDestFd(item.dest, false);
           FileInputStream in = new FileInputStream(fd.getFileDescriptor())) {
         for (int number = 1; number <= count; number++) {
           check(true);
@@ -545,15 +571,14 @@ final class TransferEngine {
   }
 
   void cleanup(Store.Item item) throws Exception {
-    Uri uri = Uri.parse(item.dest);
     String[] hash;
-    try (InputStream in = context.getContentResolver().openInputStream(uri)) {
+    try (InputStream in = openDestInput(item.dest)) {
       hash =
           Digests.hash(
               in,
               n -> {
                 check(false);
-                progress(item.id, "回收前核对 · " + item.name, n, item.size);
+                progress(item.id, "删除前核对 · " + item.name, n, item.size);
               });
     } catch (FileNotFoundException e) {
       store.state(item.id, "uploaded", "");
@@ -563,20 +588,9 @@ final class TransferEngine {
       store.state(item.id, "cleanup_error", "手机文件已变化，保留文件");
       return;
     }
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-      store.state(item.id, "cleanup_error", "已上传；此系统不支持系统回收站，手机副本已保留");
-      return;
-    }
-    ContentValues trash = new ContentValues();
-    trash.put(MediaStore.MediaColumns.IS_TRASHED, 1);
-    progress(item.id, "移入回收站 · " + item.name, item.size, item.size);
-    try {
-      if (context.getContentResolver().update(uri, trash, null, null) > 0)
-        store.state(item.id, "uploaded", "");
-      else store.state(item.id, "cleanup_error", "上传成功，移入回收站失败，手机副本已保留");
-    } catch (Exception e) {
-      store.state(item.id, "cleanup_error", "上传成功，移入回收站失败，手机副本已保留");
-    }
+    progress(item.id, "删除手机副本 · " + item.name, item.size, item.size);
+    if (removeDest(item)) store.state(item.id, "uploaded", "");
+    else store.state(item.id, "cleanup_error", "删除失败，手机副本保留，可重试");
   }
 
   static String readable(Exception e) {
