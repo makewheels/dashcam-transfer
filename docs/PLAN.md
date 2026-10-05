@@ -336,7 +336,7 @@ Android增加开发applicationIdSuffix `.dev`、开发标签，生产app ID不�
 - 纯布局删减，编译/lint/单测通过；本地模拟器因磁盘余量不足未再起，UI流程回归交由CI设备测试。
 - 源码019f4ad，发行37316995801成功；正式APK 5356820字节、SHA-256 `ae0cd28dc42cab5d82749bff87703993c5a8fca49999da3dd0691704a49a70a3`，0.4.9/code 4009、同签名；生产更新接口核对一致并完整下载验证；Release标题「0.4.9 更极简」正确读取tag说明。飞书APK+说明发送成功，message_id `om_x100b630e2208f0acc3d8a328ff5430a`。
 
-## 0.5.0 手机副本改为应用私有目录（2026-10-05，验证中）
+## 0.5.0 手机副本改为应用私有目录（2026-10-05，已发行并飞书交付）
 
 用户改需求：副本不再放共享媒体目录（相册可见、Movies/行车视频），改存应用私有位置，相册不可见、卸载/清理即消失。
 
@@ -344,4 +344,4 @@ Android增加开发applicationIdSuffix `.dev`、开发标签，生产app ID不�
 - copy目标改文件路径；校验/分片读取/上传前核对/删除前核对统一走新helper；cleanup从「移入系统回收站」改为「核对后直接删除」（旧MediaStore副本仍走回收站）；abandon同样直接删除。
 - 文案：「移入手机回收站」→「删除手机副本」，确认框说明副本存于应用私有目录、云端与TF卡不受影响。
 - CopyFlowTest的finally清理适配文件路径dest。设备测试发现本机模拟器缺sdcard镜像导致CardInventoryTest/UiFlowTest失败（0.4.3在本机同样失败，非代码回归，CI环境有sdcard而本地AVD未生成）；修复后以CI设备测试为准（workflow_dispatch手动触发）。
-- debug构建/lint/单测通过。版本0.5.0/code 5000。
+- debug构建/lint/单测通过。CI设备测试37326596860手动触发，8项全绿（真实复制走新私有路径）。源码a4c5fbf，发行37327351999成功；正式APK 5356680字节、SHA-256 `5136403fdcf88de1b5162019f61331c78c5e3cbda96f8012dcf6a0c80f62c699`，0.5.0/code 5000、同签名；生产更新接口核对一致并完整下载验证；Release标题正确、无附件。飞书APK+说明发送成功，message_id `om_x100b630fe601f0a4c3b51e0253e3bc2`。期间本机到阿里云FC链路多次SSL握手超时（baidu/github正常），用curl完成验证；本机模拟器sdcard.img缺失导致设备测试失败已定位（CI环境正常），AVD需mksdcard手动创建。
