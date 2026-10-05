@@ -69,7 +69,6 @@ public final class MainActivity extends Activity {
   LinearLayout queueControls;
   TextView queueAction, queuePause;
   TextView heading,
-      subtitle,
       guideStep,
       guideTitle,
       guideBody,
@@ -133,15 +132,13 @@ public final class MainActivity extends Activity {
     more.setOnClickListener(v -> more());
     line.addView(more);
     header.addView(line);
-    subtitle = text("把行车视频安全转存到云端", 13, Ui.MUTED);
-    ui.add(header, subtitle, 8);
     root.addView(header);
     steps = ui.row();
     steps.setPadding(dp(24), 0, dp(24), dp(14));
-    firstStep = ui.bold("① 拷贝到手机", 15, Ui.BLUE);
+    firstStep = ui.bold("① 拷贝到手机", 18, Ui.BLUE);
     firstStep.setPadding(dp(4), dp(10), dp(12), dp(10));
     firstStep.setOnClickListener(v -> selectTab(0));
-    secondStep = ui.bold("② 上传云端", 15, Ui.MUTED);
+    secondStep = ui.bold("② 上传云端", 18, Ui.MUTED);
     secondStep.setPadding(dp(12), dp(10), dp(4), dp(10));
     secondStep.setOnClickListener(v -> selectTab(1));
     steps.addView(firstStep);
@@ -732,18 +729,17 @@ public final class MainActivity extends Activity {
 
   void selectTab(int selected) {
     tab = selected;
-    String[] titles = {"① 拷贝到手机", "② 上传云端", "历史批次", "云端"},
-        sub =
-            {"拷贝完成后，再决定是否删除卡上视频", "点上传开始备份，完成后再决定清理手机", "按每次导入时间查看记录", "已完成校验的云端视频"};
+    String[] titles = {"① 拷贝到手机", "② 上传云端", "历史批次", "云端"};
     for (int i = 0; i < 4; i++) {
       pages[i].setVisibility(i == tab ? View.VISIBLE : View.GONE);
     }
     steps.setVisibility(tab < 2 ? View.VISIBLE : View.GONE);
+    // Steps double as the page title; the heading only shows on non-step pages.
+    heading.setVisibility(tab < 2 ? View.GONE : View.VISIBLE);
     firstStep.setTextColor(tab == 0 ? Ui.BLUE : Ui.GREEN);
     secondStep.setTextColor(tab == 1 ? Ui.BLUE : Ui.MUTED);
     stepConnector.setProgress(tab == 1 ? 1000 : 0);
     heading.setText(titles[tab]);
-    subtitle.setText(sub[tab]);
     if (tab == 3 && !loading) loadCloud(false);
     if (tab == 2 && !batchesLoading) loadBatches(false);
     refresh();
