@@ -9,6 +9,9 @@ import android.net.*;
 import android.os.*;
 import android.os.storage.*;
 import android.provider.*;
+import android.telephony.PhoneStateListener;
+import android.telephony.TelephonyDisplayInfo;
+import android.telephony.TelephonyManager;
 import android.view.*;
 import android.widget.*;
 import androidx.documentfile.provider.DocumentFile;
@@ -50,6 +53,11 @@ public final class MainActivity extends Activity {
   String inventorySummary = "", inventorySignature = "";
   AlertDialog inventoryDialog;
   LinearLayout hintBar;
+  LinearLayout netBar;
+  TextView netText;
+  ImageView netIcon;
+  volatile String cellularLabel = "移动网络";
+  PhoneStateListener phoneListener;
   AlertDialog updateDialog;
   volatile boolean updateCancelled;
   JSONArray remoteBatches = new JSONArray();
@@ -62,7 +70,6 @@ public final class MainActivity extends Activity {
   TextView queueAction, queuePause;
   TextView heading,
       subtitle,
-      network,
       guideStep,
       guideTitle,
       guideBody,
@@ -91,6 +98,7 @@ public final class MainActivity extends Activity {
     build();
     UploadWorker.schedule(this);
     registerMedia();
+    registerCellularDisplay();
     checkStorage(false);
     prefs.edit().putBoolean("intro_seen", true).apply();
     if (System.currentTimeMillis() - prefs.getLong("update_checked", 0) > 24 * 60 * 60 * 1000L)
@@ -213,6 +221,23 @@ public final class MainActivity extends Activity {
         .setNegativeButton("保留", null)
         .setPositiveButton("放弃并重新开始", (d, w) -> explicitAction("abandon"))
         .show();
+  }
+
+  /** Android 11+ reports the cellular generation (5G/4G) without any permission. */
+  void registerCellularDisplay() {
+    if (Build.VERSION.SDK_INT < 30) return;
+    TelephonyManager tm = (TelephonyManager) getSystemService(TELEPHONY_SERVICE);
+    if (tm == null) return;
+    phoneListener =
+        new PhoneStateListener() {
+          @Override
+          public void onDisplayInfoChanged(TelephonyDisplayInfo info) {
+            boolean nr = info.getNetworkType() == TelephonyManager.NETWORK_TYPE_NR;
+            cellularLabel = nr ? "5G 网络" : "4G 网络";
+            handler.post(() -> refresh());
+          }
+        };
+    tm.listen(phoneListener, PhoneStateListener.LISTEN_DISPLAY_INFO_CHANGED);
   }
 
   void more() {
@@ -634,10 +659,17 @@ public final class MainActivity extends Activity {
 
   View queuePage() {
     LinearLayout content = ui.column();
-    LinearLayout netCard = ui.card();
-    network = ui.chip("", Ui.GREEN, 0xffe7f5ed);
-    netCard.addView(network);
-    ui.add(content, netCard, 0);
+    netBar = new LinearLayout(this);
+    netBar.setOrientation(LinearLayout.HORIZONTAL);
+    netBar.setGravity(Gravity.CENTER_VERTICAL);
+    netBar.setBackground(ui.shape(0xffe7f5ed, 14));
+    netBar.setPadding(dp(16), dp(12), dp(16), dp(12));
+    netIcon = ui.icon("wifi", 0xff167d6e, 20);
+    netBar.addView(netIcon);
+    netText = ui.bold("检查网络…", 16, 0xff167d6e);
+    netBar.addView(netText, new LinearLayout.LayoutParams(0, -2, 1));
+    ((LinearLayout.LayoutParams) netText.getLayoutParams()).leftMargin = dp(12);
+    ui.add(content, netBar, 0);
     uploadTask = new TaskCard("整批上传进度");
     ui.add(content, uploadTask.card, 0);
     LinearLayout intro = ui.card();
@@ -814,6 +846,11 @@ public final class MainActivity extends Activity {
   @Override
   protected void onDestroy() {
     handler.removeCallbacksAndMessages(null);
+    if (phoneListener != null) {
+      TelephonyManager tm = (TelephonyManager) getSystemService(TELEPHONY_SERVICE);
+      if (tm != null) tm.listen(phoneListener, PhoneStateListener.LISTEN_NONE);
+      phoneListener = null;
+    }
     unregisterReceiver(mediaReceiver);
     unregisterReceiver(usbReceiver);
     executor.shutdownNow();
@@ -1019,8 +1056,23 @@ public final class MainActivity extends Activity {
     chooseButton.setVisibility(tree != null ? View.GONE : View.VISIBLE);
     space.setText("可用 " + TransferEngine.bytes(TransferEngine.free(this)) + " · 始终预留 5 GB");
     TransferEngine engine = connectivity;
-    network.setText(engine.wifi() ? "Wi-Fi 已连接" : engine.connected() ? "移动网络" : "未联网");
-    network.setTextColor(engine.wifi() ? Ui.GREEN : Ui.MUTED);
+    boolean wf = engine.wifi(), conn = engine.connected();
+    if (wf) {
+      netIcon.setImageDrawable(new Ui.Icon("wifi", 0xff167d6e));
+      netText.setText("Wi-Fi 已连接");
+      netText.setTextColor(0xff167d6e);
+      netBar.setBackground(ui.shape(0xffe7f5ed, 14));
+    } else if (conn) {
+      netIcon.setImageDrawable(new Ui.Icon("cell", 0xff2b6cb0));
+      netText.setText(cellularLabel + "（流量上传需手动确认）");
+      netText.setTextColor(0xff2b6cb0);
+      netBar.setBackground(ui.shape(0xffeaf2ff, 14));
+    } else {
+      netIcon.setImageDrawable(new Ui.Icon("wifi", 0xff5f6b76));
+      netText.setText("未联网");
+      netText.setTextColor(0xff5f6b76);
+      netBar.setBackground(ui.shape(0xfff4f6f8, 14));
+    }
     List<Store.Item> files = local();
     long bytes = 0;
     int ready = 0;

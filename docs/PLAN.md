@@ -317,3 +317,11 @@ Android增加开发applicationIdSuffix `.dev`、开发标签，生产app ID不�
 - debug构建/lint/单测通过。源码1b20356，发行37313281552成功；正式APK 5355308字节、SHA-256 `5fe9d200459296bac3e71db1f1a9bbbeb8f816f7e6dec894a49c504a769da17d`，0.4.7/code 4007、同签名；生产更新接口核对一致并完整下载验证；Release无附件。飞书APK+说明发送成功，message_id `om_x100b630db05e88a0c4a2e3fda83dd9c`。
 - checkout fetch-depth:0仍取不到annotated tag对象（Release标题两次落到commit信息），已在workflow加`git fetch --tags --force`（723935d），v0.4.7标题手动修正，下版自动生效。
 - todo（用户提出，下一版处理）：上传页网络状态区分Wi-Fi/移动网络/5G显示不同图标与颜色，字体加大。
+
+## 0.4.8 网络状态可视化（2026-10-05，发行中）
+
+用户要求处理上面的todo：上传页网络状态区分类型、图标、颜色，字体加大。
+
+- 上传页顶部改为网络状态条：图标+16sp加粗文字+浅色圆角底。Wi-Fi=绿色wifi图标；蜂窝=蓝色cell信号柱图标（Ui.Icon新增cell）；未联网=灰色。蜂窝文字显示「5G 网络」/「4G 网络」/「移动网络」并附「流量上传需手动确认」。
+- 5G识别：Android 11+用PhoneStateListener.LISTEN_DISPLAY_INFO_CHANGED（TelephonyDisplayInfo，无需权限），NETWORK_TYPE_NR判定5G；Android 10显示「移动网络」。onDestroy反注册。isNrAdvanced在当前编译环境不可用，仅用NETWORK_TYPE_NR（5G-Advanced细分不区分）。
+- debug构建/lint/单测通过；模拟器验证Wi-Fi与未联网两态渲染，蜂窝与5G文案待真机（模拟器无SIM）。版本0.4.8/code 4008。

@@ -214,6 +214,16 @@ final class Ui {
           p.quadTo(12, 13, 15, 16);
           c.drawCircle(12, 20, .8f, paint);
           break;
+        case "cell":
+          p.moveTo(5, 20);
+          p.lineTo(5, 15);
+          p.moveTo(10, 20);
+          p.lineTo(10, 11);
+          p.moveTo(15, 20);
+          p.lineTo(15, 7);
+          p.moveTo(20, 20);
+          p.lineTo(20, 3);
+          break;
         case "video":
           c.drawRoundRect(3, 3, 21, 21, 4, 4, paint);
           p.moveTo(10, 8);
