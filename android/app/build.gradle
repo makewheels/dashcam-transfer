@@ -1,5 +1,5 @@
 import groovy.json.JsonOutput
-plugins { id 'com.android.application' }
+plugins { id 'com.android.application'; id 'org.jetbrains.kotlin.android' }
 android {
     namespace 'com.makewheels.dashcam'
     compileSdk 35
@@ -9,7 +9,7 @@ android {
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         targetSdk 35
         versionCode Integer.parseInt(System.getenv('DASHCAM_VERSION_CODE') ?: '1')
-        versionName System.getenv('DASHCAM_VERSION_NAME') ?: '0.5.1'
+        versionName System.getenv('DASHCAM_VERSION_NAME') ?: '0.6.0'
         resValue 'string', 'app_name', '行车记录仪转存'
         buildConfigField 'String', 'API_URL', JsonOutput.toJson(System.getenv('DASHCAM_API_URL') ?: '')
         // Scoped application access credential, not an Alibaba Cloud access key.
@@ -38,9 +38,11 @@ android {
     }
     buildFeatures { buildConfig true }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    kotlinOptions { jvmTarget = '17' }
 }
 dependencies {
     implementation 'androidx.documentfile:documentfile:1.0.1'
+    implementation 'org.jetbrains.kotlin:kotlin-stdlib:2.0.21'
     implementation 'androidx.work:work-runtime:2.10.1'
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.2.1'
