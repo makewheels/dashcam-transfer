@@ -34,7 +34,7 @@ public final class MainActivity extends Activity {
       homePause,
       liveHint,
       batchStatus;
-  TextView deleteCardButton, recycleButton, chooseButton;
+  TextView deleteCardButton, recycleButton, chooseButton, abandonButton;
   LinearLayout steps;
   TextView firstStep, secondStep;
   ProgressBar stepConnector;
@@ -49,6 +49,7 @@ public final class MainActivity extends Activity {
   String inventoryOutcome = "";
   String inventorySummary = "", inventorySignature = "";
   AlertDialog inventoryDialog;
+  LinearLayout hintBar;
   AlertDialog updateDialog;
   volatile boolean updateCancelled;
   JSONArray remoteBatches = new JSONArray();
@@ -180,14 +181,38 @@ public final class MainActivity extends Activity {
     space = text("", 12, Ui.MUTED);
     ui.add(sourceCard, space, 12);
     ui.add(content, sourceCard, 0);
-    liveHint = text("", 15, Ui.INK);
-    ui.add(content, liveHint, 22);
+    liveHint = ui.bold("", 15, Ui.INK);
+    hintBar = new LinearLayout(this);
+    hintBar.setOrientation(LinearLayout.VERTICAL);
+    hintBar.setBackground(ui.shape(0xfff4f6f8, 14));
+    hintBar.setPadding(dp(16), dp(12), dp(16), dp(12));
+    hintBar.addView(liveHint);
+    ui.add(content, hintBar, 22);
     copyButton = ui.button("拷贝到手机", true, this::scan);
     ui.add(content, copyButton, 18);
     deleteCardButton = ui.button("删除卡上已拷贝的视频", false, this::deleteCard);
     ui.add(content, deleteCardButton, 12);
+    abandonButton = ui.button("放弃上次任务，重新开始", false, this::abandonPending);
+    ui.add(content, abandonButton, 12);
+    abandonButton.setVisibility(View.GONE);
     homePause = ui.button("暂停", false, () -> TransferEngine.stop(this));
     return scroll(content);
+  }
+
+  void abandonPending() {
+    List<Store.Item> pending =
+        store.files("state IN ('ready','copy_error','uploading','upload_error')");
+    if (pending.isEmpty()) return;
+    long bytes = 0;
+    for (Store.Item item : pending) bytes += item.size;
+    new AlertDialog.Builder(this)
+        .setTitle("放弃上次任务？")
+        .setMessage(
+            "上次拷贝的 " + pending.size() + " 个视频（" + TransferEngine.bytes(bytes)
+                + "）的手机副本会移入系统回收站，不永久删除。TF 卡上的原视频不受影响，已上传到云端的不受影响。放弃后可重新插卡拷贝。")
+        .setNegativeButton("保留", null)
+        .setPositiveButton("放弃并重新开始", (d, w) -> explicitAction("abandon"))
+        .show();
   }
 
   void more() {
@@ -230,7 +255,7 @@ public final class MainActivity extends Activity {
     intent.putExtra("tree", prefs.getString("source_tree", ""));
     requestedGeneration = TransferEngine.generation;
     awaitingStart = true;
-    requestedKind = action.equals("delete-source") ? "delete-source" : "cleanup";
+    requestedKind = action.equals("delete-source") || action.equals("abandon") ? action : "cleanup";
     startForegroundService(intent);
     refresh();
     handler.postDelayed(
@@ -1038,6 +1063,16 @@ public final class MainActivity extends Activity {
     }
   }
 
+  static final int HINT_BLUE = 0, HINT_AMBER = 1, HINT_GREEN = 2, HINT_PLAIN = 3;
+  static final int[][] HINT_COLORS = {
+      {0xffeaf2ff, 0xff2b6cb0}, {0xfffdf3e3, 0xff8a5a12}, {0xffe7f5ed, 0xff167d6e}, {0xfff4f6f8, 0xff5f6b76}};
+
+  void hint(String text, int kind) {
+    liveHint.setText(text);
+    liveHint.setTextColor(HINT_COLORS[kind][1]);
+    hintBar.setBackground(ui.shape(HINT_COLORS[kind][0], 14));
+  }
+
   void updateGuide(List<Store.Item> files, int ready, String tree) {
     boolean busy = TransferEngine.BUSY.get();
     boolean wifi = connectivity.wifi(), connected = connectivity.connected();
@@ -1056,6 +1091,14 @@ public final class MainActivity extends Activity {
             .size();
     deleteCardButton.setEnabled(!busy && !scanning && deletable > 0 && cardPresent);
     deleteCardButton.setAlpha(!busy && deletable > 0 && cardPresent ? 1f : .45f);
+    List<Store.Item> pending = new ArrayList<>();
+    for (Store.Item f : files)
+      if (Arrays.asList("ready", "copy_error", "uploading", "upload_error").contains(f.state))
+        pending.add(f);
+    abandonButton.setVisibility(!busy && !scanning && !pending.isEmpty() ? View.VISIBLE : View.GONE);
+    abandonButton.setEnabled(!busy && !scanning);
+    abandonButton.setAlpha(busy || scanning || pending.isEmpty() ? .5f : 1);
+    abandonButton.setText("放弃上次任务（" + pending.size() + " 个视频），重新开始");
     boolean canRecycle = !busy && !store.files("state='cleanup_error'").isEmpty();
     recycleButton.setEnabled(canRecycle);
     recycleButton.setAlpha(canRecycle ? 1f : .45f);
@@ -1063,33 +1106,43 @@ public final class MainActivity extends Activity {
     uploadButton.setAlpha(busy || scanning || ready == 0 ? .5f : 1);
     uploadButton.setText("上传云端" + (ready > 0 ? " · " + ready + " 个" : ""));
     homePause.setVisibility(busy ? View.VISIBLE : View.GONE);
-    if (scanning) liveHint.setText("正在检查文件和空间，完成后开始拷贝。");
+    if (scanning) hint("正在检查文件和空间，完成后开始拷贝。", HINT_BLUE);
     else if (busy)
-      liveHint.setText(
+      hint(
           Arrays.asList("import", "delete-source").contains(TransferEngine.taskKind)
               ? "正在拷贝、核对或删除，请保持 TF 卡连接。"
-              : "第二页任务正在进行，请到上传页面查看。");
+              : "abandon".equals(TransferEngine.taskKind)
+                  ? "正在放弃上次任务，手机副本移入回收站。"
+                  : "第二页任务正在进行，请到上传页面查看。",
+          HINT_BLUE);
     else if (files.stream()
         .anyMatch(
             f ->
                 !Arrays.asList("ready", "uploading", "upload_error", "cleanup_error")
-                    .contains(f.state))) liveHint.setText("有未完成的拷贝。连接原 TF 卡后，点「拷贝到手机」继续。");
-    else if (deletable > 0 && cardPresent) liveHint.setText("拷贝已完成，有 " + deletable + " 个卡上视频可手动删除，也可直接进入下一步。");
+                    .contains(f.state)))
+      hint(
+          "上次拷贝未完成，有 " + pending.size() + " 个视频待处理。可连接原 TF 卡点「拷贝到手机」继续，或点下方按钮放弃后重新来。",
+          HINT_AMBER);
+    else if (deletable > 0 && cardPresent)
+      hint("拷贝已完成，有 " + deletable + " 个卡上视频可手动删除，也可直接进入下一步。", HINT_GREEN);
     else if (deletable > 0)
-      liveHint.setText(
+      hint(
           ready > 0
               ? "上次拷贝的 " + deletable + " 个视频已在手机上。连接原读卡器才能清理卡上副本，或直接进入②上传云端。"
-              : "上次拷贝的 " + deletable + " 个视频还在处理中。连接原读卡器后点「拷贝到手机」继续。");
+              : "上次拷贝的 " + deletable + " 个视频还在处理中。连接原读卡器后点「拷贝到手机」继续。",
+          HINT_AMBER);
     else if (ready > 0)
-      liveHint.setText(
+      hint(
           prefs.getBoolean("upload_paused", false)
               ? "视频已在手机上。上传之前暂停过，到②上传云端点继续即可。"
-              : wifi ? "视频已在手机上。进入②上传云端开始备份。" : "视频已在手机上。进入②上传云端开始备份（流量会先向你确认）。");
+              : wifi ? "视频已在手机上。进入②上传云端开始备份。" : "视频已在手机上。进入②上传云端开始备份（流量会先向你确认）。",
+          HINT_GREEN);
     else
-      liveHint.setText(
+      hint(
           tree == null
               ? "先选择 TF 卡的视频文件夹，再点「拷贝到手机」。"
-              : cardPresent ? "TF 卡已连接。点「拷贝到手机」，完整校验后卡上原视频仍保留。" : "已记住视频文件夹。连接读卡器后，点「拷贝到手机」。");
+              : cardPresent ? "TF 卡已连接。点「拷贝到手机」，完整校验后卡上原视频仍保留。" : "已记住视频文件夹。连接读卡器后，点「拷贝到手机」。",
+          HINT_PLAIN);
     if (!busy
         && !scanning
         && Arrays.asList("import", "delete-source").contains(TransferEngine.taskKind)
@@ -1097,10 +1150,11 @@ public final class MainActivity extends Activity {
     if (busy || (TransferEngine.generation != requestedGeneration
         && !"running".equals(TransferEngine.outcome))) awaitingStart = false;
     boolean hasTask = !TransferEngine.taskIds.isEmpty();
-    boolean show = busy || awaitingStart || scanning || hasTask;
     String visibleKind = scanning || awaitingStart ? requestedKind : TransferEngine.taskKind;
+    // Abandon is momentary: only show its progress card while running, never as a finished state.
+    boolean show = busy || awaitingStart || scanning || (hasTask && !"abandon".equals(visibleKind));
     homeTask.card.setVisibility(
-        show && Arrays.asList("import", "delete-source").contains(visibleKind)
+        show && Arrays.asList("import", "delete-source", "abandon").contains(visibleKind)
             ? View.VISIBLE
             : View.GONE);
     uploadTask.card.setVisibility(
@@ -1121,10 +1175,11 @@ public final class MainActivity extends Activity {
     if (!busy
         && "completed".equals(TransferEngine.outcome)
         && "import".equals(TransferEngine.taskKind)) {
-      liveHint.setText(
+      hint(
           cardPresent
               ? "第一步已完成：视频已拷贝并校验。下一步上传云端。卡上原视频可按需手动删除。"
-              : "第一步已完成：视频已拷贝并校验。下一步上传云端。");
+              : "第一步已完成：视频已拷贝并校验。下一步上传云端。",
+          HINT_GREEN);
     }
     if (tab == 2 && !batchesLoading) renderBatches();
   }

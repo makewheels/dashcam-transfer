@@ -38,6 +38,14 @@ final class Store extends SQLiteOpenHelper {
     update(id, v);
   }
 
+  synchronized void delete(String id) {
+    getWritableDatabase().delete("files", "id=?", new String[] {id});
+  }
+
+  synchronized void deleteBatch(String id) {
+    getWritableDatabase().delete("batches", "id=?", new String[] {id});
+  }
+
   synchronized List<Item> files(String query, String... args) {
     List<Item> out = new ArrayList<>();
     try (Cursor c =

@@ -39,7 +39,9 @@ final class TransferEngine {
             ? "准备拷贝"
             : kind.equals("delete-source")
                 ? "准备核对并删除卡上视频"
-                : kind.equals("cleanup") ? "准备移入手机回收站" : "准备上传";
+                : kind.equals("abandon")
+                    ? "准备放弃上次任务"
+                    : kind.equals("cleanup") ? "准备移入手机回收站" : "准备上传";
   }
 
   static final long RESERVE = 5L * 1024 * 1024 * 1024;
@@ -240,6 +242,47 @@ final class TransferEngine {
       cleanup(item);
     }
     message = "手机回收站操作结束";
+  }
+
+  /** Give up the unfinished previous task: trash local copies, drop records; card originals untouched. */
+  void runAbandon() throws Exception {
+    List<Store.Item> items =
+        store.files("state IN ('ready','copy_error','uploading','upload_error')");
+    if (items.isEmpty()) {
+      message = "没有可放弃的任务";
+      return;
+    }
+    begin("abandon", items);
+    LinkedHashSet<String> batches = new LinkedHashSet<>();
+    for (Store.Item item : items) batches.add(item.batch);
+    int failed = 0;
+    for (Store.Item item : items) {
+      check(false);
+      if (item.dest != null) {
+        try {
+          Uri uri = Uri.parse(item.dest);
+          ContentValues trash = new ContentValues();
+          trash.put(MediaStore.MediaColumns.IS_TRASHED, 1);
+          boolean gone =
+              Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                  && context.getContentResolver().update(uri, trash, null, null) > 0;
+          // Trash is preferred; deleting an unfinished copy only if trashing is unavailable.
+          if (!gone && Build.VERSION.SDK_INT < Build.VERSION_CODES.R)
+            gone = context.getContentResolver().delete(uri, null, null) > 0;
+          if (!gone) failed++;
+        } catch (Exception e) {
+          failed++;
+        }
+      }
+      progress(item.id, "放弃 · " + item.name, item.size, item.size);
+      store.delete(item.id);
+    }
+    for (String batch : batches)
+      if (store.files("batch=?", batch).isEmpty()) store.deleteBatch(batch);
+    message =
+        failed > 0
+            ? "任务已放弃；" + failed + " 个手机副本清理失败，可在文件管理器删除"
+            : "已放弃上次任务，可重新插卡拷贝";
   }
 
   boolean verified(Store.Item i) {

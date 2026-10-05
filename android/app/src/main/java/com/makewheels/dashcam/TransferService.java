@@ -70,6 +70,7 @@ public final class TransferService extends Service {
                 TransferEngine engine = new TransferEngine(this);
                 if ("delete-source".equals(action)) engine.runDeleteSources(sourceTree);
                 else if ("recycle-phone".equals(action)) engine.runCleanup();
+                else if ("abandon".equals(action)) engine.runAbandon();
                 else if (batch != null) engine.runImport(batch);
                 else engine.runUpload(cellular);
                 TransferEngine.outcome = "completed";
