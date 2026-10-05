@@ -1054,8 +1054,8 @@ public final class MainActivity extends Activity {
                 "source_deleted=0 AND tree=? AND batch IN (SELECT id FROM batches WHERE ready=1)",
                 tree == null ? "" : tree)
             .size();
-    deleteCardButton.setEnabled(!busy && !scanning && deletable > 0);
-    deleteCardButton.setAlpha(!busy && deletable > 0 ? 1f : .45f);
+    deleteCardButton.setEnabled(!busy && !scanning && deletable > 0 && cardPresent);
+    deleteCardButton.setAlpha(!busy && deletable > 0 && cardPresent ? 1f : .45f);
     boolean canRecycle = !busy && !store.files("state='cleanup_error'").isEmpty();
     recycleButton.setEnabled(canRecycle);
     recycleButton.setAlpha(canRecycle ? 1f : .45f);
@@ -1074,12 +1074,17 @@ public final class MainActivity extends Activity {
             f ->
                 !Arrays.asList("ready", "uploading", "upload_error", "cleanup_error")
                     .contains(f.state))) liveHint.setText("有未完成的拷贝。连接原 TF 卡后，点「拷贝到手机」继续。");
-    else if (deletable > 0) liveHint.setText("拷贝已完成，有 " + deletable + " 个卡上视频可手动删除，也可直接进入下一步。");
+    else if (deletable > 0 && cardPresent) liveHint.setText("拷贝已完成，有 " + deletable + " 个卡上视频可手动删除，也可直接进入下一步。");
+    else if (deletable > 0)
+      liveHint.setText(
+          ready > 0
+              ? "上次拷贝的 " + deletable + " 个视频已在手机上。连接原读卡器才能清理卡上副本，或直接进入②上传云端。"
+              : "上次拷贝的 " + deletable + " 个视频还在处理中。连接原读卡器后点「拷贝到手机」继续。");
     else if (ready > 0)
       liveHint.setText(
           prefs.getBoolean("upload_paused", false)
-              ? "视频已在手机上，可删除卡上已拷贝的视频，再进入下一步。"
-              : wifi ? "拷贝已完成。可点删除清理 TF 卡，或直接进入下一步上传。" : "拷贝已完成。卡上视频仍保留，可删除或进入下一步。");
+              ? "视频已在手机上。上传之前暂停过，到②上传云端点继续即可。"
+              : wifi ? "视频已在手机上。进入②上传云端开始备份。" : "视频已在手机上。进入②上传云端开始备份（流量会先向你确认）。");
     else
       liveHint.setText(
           tree == null
@@ -1116,7 +1121,10 @@ public final class MainActivity extends Activity {
     if (!busy
         && "completed".equals(TransferEngine.outcome)
         && "import".equals(TransferEngine.taskKind)) {
-      liveHint.setText("第一步已完成：视频已拷贝并校验。下一步上传云端。卡上原视频可按需手动删除。");
+      liveHint.setText(
+          cardPresent
+              ? "第一步已完成：视频已拷贝并校验。下一步上传云端。卡上原视频可按需手动删除。"
+              : "第一步已完成：视频已拷贝并校验。下一步上传云端。");
     }
     if (tab == 2 && !batchesLoading) renderBatches();
   }
