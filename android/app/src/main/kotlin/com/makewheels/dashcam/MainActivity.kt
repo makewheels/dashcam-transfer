@@ -711,7 +711,8 @@ class MainActivity : Activity() {
     for (i in 0 until 4) pages[i]!!.visibility = if (i == tab) View.VISIBLE else View.GONE
     steps.visibility = if (tab < 2) View.VISIBLE else View.GONE
     // Steps double as the page title; the heading only shows on non-step pages.
-    heading?.visibility = if (tab < 2) View.GONE else View.VISIBLE
+    // Invisible (not gone) keeps the spacer so the more button stays on the right.
+    heading?.visibility = if (tab < 2) View.INVISIBLE else View.VISIBLE
     firstStep.setTextColor(if (tab == 0) Ui.BLUE else Ui.GREEN)
     secondStep.setTextColor(if (tab == 1) Ui.BLUE else Ui.MUTED)
     stepConnector!!.progress = if (tab == 1) 1000 else 0
