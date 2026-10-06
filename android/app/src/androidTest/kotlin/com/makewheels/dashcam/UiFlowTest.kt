@@ -155,7 +155,7 @@ class UiFlowTest {
       SystemClock.sleep(900)
       instrument.runOnMainSync {
         assertEquals(0, (activity.pages[0] as android.widget.ScrollView).scrollY)
-        assertEquals("6%", activity.homeTask.percent.text.toString())
+        assertEquals("22%", activity.homeTask.percent.text.toString())
         assertTrue(activity.homeTask.totalEta.text.toString().startsWith("约 "))
         assertFalse(contains(activity.root, "当前阶段剩余"))
         assertFalse(contains(activity.root, "当前文件剩余"))

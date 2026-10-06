@@ -114,12 +114,14 @@ def main():
             deadline = time.monotonic() + 120
             while time.monotonic() < deadline:
                 boot = subprocess.run(adb + ["shell", "getprop", "sys.boot_completed"], capture_output=True, text=True)
-                if boot.stdout.strip() == "1": break
+                storage = subprocess.run(adb + ["shell", "test", "-d", "/sdcard"], capture_output=True)
+                if boot.stdout.strip() == "1" and storage.returncode == 0: break
                 if process.poll() is not None:
                     print((directory / "emulator.log").read_text()[-3000:])
                     raise RuntimeError("Emulator exited")
                 time.sleep(1)
             else: raise RuntimeError("Emulator boot timeout")
+            subprocess.run(adb + ["reverse", "tcp:8765", "tcp:8765"], check=True, capture_output=True)
             print(subprocess.check_output(adb + ["shell", "df", "-h", "/sdcard"], text=True), flush=True)
             for checkout, test in [(baseline, "HostCardBaselineTest"), (current, "HostCardFlowTest")]:
                 subprocess.run(adb + ["shell", "am", "force-stop", "com.makewheels.dashcam.dev"], check=True, capture_output=True)

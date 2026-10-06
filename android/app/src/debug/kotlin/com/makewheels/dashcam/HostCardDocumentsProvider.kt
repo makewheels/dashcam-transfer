@@ -9,17 +9,18 @@ import android.provider.DocumentsProvider
 import java.io.FileNotFoundException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.net.Proxy
 import java.net.URLEncoder
 import org.json.JSONArray
 
 /** Debug-only, read-only host-card bridge. Never included in the release APK. */
 class HostCardDocumentsProvider : DocumentsProvider() {
-  private val base = "http://10.0.2.2:8765"
+  private val base = "http://127.0.0.1:8765"
   private var cached = JSONArray()
   private var checked = 0L
   @Synchronized private fun entries(): JSONArray {
     if (System.currentTimeMillis() - checked < 1000) return cached
-    val connection = URL("$base/entries").openConnection() as HttpURLConnection
+    val connection = URL("$base/entries").openConnection(Proxy.NO_PROXY) as HttpURLConnection
     connection.connectTimeout = 3000
     connection.readTimeout = 10000
     try {
@@ -61,7 +62,7 @@ class HostCardDocumentsProvider : DocumentsProvider() {
     if (mode != "r" || id == "root") throw FileNotFoundException("Read-only source")
     val pipes = ParcelFileDescriptor.createReliablePipe()
     Thread {
-      val connection = URL("$base/file/" + URLEncoder.encode(id, "UTF-8")).openConnection() as HttpURLConnection
+      val connection = URL("$base/file/" + URLEncoder.encode(id, "UTF-8")).openConnection(Proxy.NO_PROXY) as HttpURLConnection
       connection.connectTimeout = 3000
       connection.readTimeout = 15000
       try {
