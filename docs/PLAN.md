@@ -413,3 +413,6 @@ Android增加开发applicationIdSuffix `.dev`、开发标签，生产app ID不�
 - 结果：生产Mongo 103→29个文档全部平铺；OSS videos/仅剩29个平铺对象、批次目录消失；经生产API列表与签名URL Range GET（206、Content-Range总长一致）验证下载链路正常。
 - 客户端：新增MainActivity.applyKeepScreenOn，任务运行期间（拷贝/上传/删除）保持亮屏，结束或暂停恢复自动息屏；离开App前台时不阻止息屏。新增KeepScreenOnTest设备用例。本地构建/lint/单测通过，隔离模拟器设备14项全过；首跑CardInventoryTest失败为裸模拟器缺sm set-virtual-disk setup，补齐后通过，与改动无关。
 - 版本0.6.5/code 6005。
+
+- 源码eb3babe，常规CI 37472369149通过；v0.6.5发行37472531982成功。生产更新接口0.6.5/code6005，正式APK经签名URL完整下载5457698字节、SHA-256 `63caaeae36f0a48a22bd1f2b38d8550b2499150ef74b84484a58b9265aed1143`与manifest一致，包名/版本/签名（与0.6.4同证书ccd584a2…）通过。飞书APK+说明发送成功，message_id `om_x100b637bf2b6cca4c3d91f15b62d193`、`om_x100b637bf35f64a8c00c87ea1fd46d8`。
+- 发现并修复release.yml自v0.4.4起重构时漏导出DASHCAM_RELEASE_NOTES、OSS manifest的notes始终为兜底文案的缺陷（e516e4e）；GitHub Release正文一直正确。0.6.5的manifest未重发（notes仅展示用途），下一版本生效。
