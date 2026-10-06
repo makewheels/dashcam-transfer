@@ -2,7 +2,7 @@ package com.makewheels.dashcam
 
 /** Progress rules shared by the task card and file rows. */
 internal object TransferProgress {
-  enum class Phase { IDLE, COPY, VERIFY_SOURCE, VERIFY_LOCAL, REMOVE_SOURCE, VERIFY_UPLOAD, UPLOAD, VERIFY_CLOUD, RECYCLE }
+  enum class Phase { IDLE, DEDUP, VERIFY_EXISTING, COPY, VERIFY_SOURCE, VERIFY_LOCAL, REMOVE_SOURCE, VERIFY_UPLOAD, UPLOAD, VERIFY_CLOUD, RECYCLE }
 
   @JvmStatic
   fun fraction(done: Long, total: Long): Double =
@@ -12,7 +12,9 @@ internal object TransferProgress {
   fun imported(phase: Phase, done: Long, total: Long): Double {
     val f = fraction(done, total)
     return when (phase) {
-      Phase.COPY -> f / 3
+      Phase.DEDUP -> f / 6
+      Phase.VERIFY_EXISTING -> (1 + f) / 6
+      Phase.COPY -> (1 + f) / 3
       Phase.VERIFY_SOURCE -> (1 + f) / 3
       Phase.VERIFY_LOCAL -> (2 + f) / 3
       Phase.REMOVE_SOURCE -> 1.0
@@ -30,6 +32,8 @@ internal object TransferProgress {
 
   @JvmStatic
   fun detect(label: String): Phase {
+    if (label.startsWith("检查重复")) return Phase.DEDUP
+    if (label.startsWith("核对已有副本")) return Phase.VERIFY_EXISTING
     if (label.startsWith("复制 ")) return Phase.COPY
     if (label.startsWith("校验 TF")) return Phase.VERIFY_SOURCE
     if (label.startsWith("校验手机")) return Phase.VERIFY_LOCAL
@@ -43,6 +47,8 @@ internal object TransferProgress {
 
   @JvmStatic
   fun label(phase: Phase): String = when (phase) {
+    Phase.DEDUP -> "读取 TF 卡，检查重复视频"
+    Phase.VERIFY_EXISTING -> "核对已有手机副本"
     Phase.COPY -> "复制到手机"
     Phase.VERIFY_SOURCE -> "读取并校验 TF 卡"
     Phase.VERIFY_LOCAL -> "校验手机副本"

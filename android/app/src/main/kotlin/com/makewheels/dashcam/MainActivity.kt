@@ -117,6 +117,7 @@ class MainActivity : Activity() {
   internal var readerPresent = false
   internal var batchNext: String? = null
   internal val executor: ExecutorService = Executors.newSingleThreadExecutor()
+  internal val storageExecutor: ExecutorService = Executors.newSingleThreadExecutor()
   internal val handler = Handler(Looper.getMainLooper())
   internal val pages = arrayOfNulls<View>(4)
   internal lateinit var queueControls: LinearLayout
@@ -819,6 +820,7 @@ class MainActivity : Activity() {
     unregisterReceiver(mediaReceiver)
     unregisterReceiver(usbReceiver)
     executor.shutdownNow()
+    storageExecutor.shutdownNow()
     store.close()
     connectivity.store.close()
     super.onDestroy()
@@ -946,7 +948,7 @@ class MainActivity : Activity() {
     val epoch = inventoryEpoch
     inventoryLoading = true
     if (inventorySummary.isEmpty()) inventorySummary = "正在检查视频数量和大小…"
-    executor.execute {
+    storageExecutor.execute {
       var count = 0
       var size = 0L
       var signature: String
@@ -1184,6 +1186,9 @@ class MainActivity : Activity() {
           else "第一步已完成：视频已拷贝并校验。下一步上传云端。",
           HINT_GREEN)
     }
+    if (!busy && !scanning && "completed" == TransferEngine.outcome
+        && "import" == TransferEngine.taskKind && TransferEngine.message.contains("已跳过"))
+      liveHint.append("\n" + TransferEngine.message)
     if (!busy && !scanning && importNotice.isNotEmpty()) hint(importNotice, HINT_GREEN)
     if (tab == 2 && !batchesLoading) renderBatches()
   }
@@ -1267,7 +1272,7 @@ class MainActivity : Activity() {
         totalLabel.text = "进度会在这里显示"
         totalEta.text = "即将开始"
         speed.text = ""
-        phaseLabel.text = "准备中"
+        phaseLabel.text = if (scanning) "读取文件列表" else "启动后台任务"
         fileName.text = ""
         currentLabel.text = ""
         action.isEnabled = false
@@ -1586,7 +1591,7 @@ class MainActivity : Activity() {
     importNotice = ""
     requestedKind = "import"
     refresh()
-    executor.execute {
+    storageExecutor.execute {
       try {
         var pending: String? = null
         store.readableDatabase.rawQuery(
@@ -1607,34 +1612,13 @@ class MainActivity : Activity() {
         if (dir == null || !dir.exists() || !dir.canRead())
           throw IOException("读卡器未连接或目录授权失效，请重插或重新选择")
         val files = ArrayList<DocumentFile>()
-        var size = 0L
-        var skipped = 0
-        val seen = HashSet<String>()
         for (f in dir.listFiles()) {
           if (f.isFile) {
-            if (f.length() <= 0) throw IOException("存在无法读取或空文件：" + f.getName())
-            val digest = contentResolver.openInputStream(f.uri)!!.use { Digests.hash(it) { } }
-            if (digest[2].toLong() != f.length()) throw IOException("读取长度不一致：" + f.name)
-            if (!seen.add(digest[0]) || connectivity.hasLocalCopy(digest[0], f.length())) {
-              skipped++
-              continue
-            }
+            if (f.length() <= 0) throw IOException("存在无法读取或空文件：" + f.name)
             files.add(f)
-            size += f.length()
           }
         }
-        if (files.isEmpty()) {
-          if (skipped == 0) throw IOException("目录内没有文件")
-          runOnUiThread {
-            scanning = false
-            importNotice = "已跳过 $skipped 个相同视频，手机已有校验正确的副本，无需重复拷贝。"
-            refresh()
-          }
-          return@execute
-        }
-        if (TransferEngine.free(this@MainActivity) < size + TransferEngine.RESERVE)
-          throw IOException(
-              "空间不足，请清理至少 " + TransferEngine.bytes(size + TransferEngine.RESERVE - TransferEngine.free(this@MainActivity)) + "，保留 5 GB 后再复制")
+        if (files.isEmpty()) throw IOException("目录内没有文件")
         files.sortBy { it.getName() ?: "" }
         val batch = UUID.randomUUID().toString()
         val timestamp = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.CHINA)
@@ -1668,7 +1652,7 @@ class MainActivity : Activity() {
         }
         runOnUiThread {
           scanning = false
-          importNotice = if (skipped > 0) "已跳过 $skipped 个相同视频，其余视频已拷贝并校验。" else ""
+          importNotice = ""
           selectTab(0)
           start(batch, false)
         }

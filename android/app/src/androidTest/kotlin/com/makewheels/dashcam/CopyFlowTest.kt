@@ -83,9 +83,9 @@ class CopyFlowTest {
       // Repeated copy reads hashes but creates neither a new record nor a new copy.
       i.runOnMainSync { activity.scan() }
       val repeatDeadline = SystemClock.elapsedRealtime() + 10000
-      while (activity.scanning && SystemClock.elapsedRealtime() < repeatDeadline) SystemClock.sleep(100)
+      while ((activity.scanning || TransferEngine.BUSY.get() || activity.awaitingStart) && SystemClock.elapsedRealtime() < repeatDeadline) SystemClock.sleep(100)
       assertEquals(1, activity.store.files("name=?", name).size)
-      assertTrue(activity.importNotice.contains("已跳过 2 个"))
+      assertTrue(TransferEngine.message, TransferEngine.message.contains("已跳过 2 个"))
       val copy = java.io.File(files[0].dest!!)
       assertEquals("videos", copy.parentFile!!.name)
       assertTrue(TransferEngine(c).hasLocalCopy(files[0].sha!!, files[0].size))
@@ -93,7 +93,7 @@ class CopyFlowTest {
       assertTrue("Corrupt copies must be copied again", !TransferEngine(c).hasLocalCopy(files[0].sha!!, files[0].size))
       copy.writeBytes(payload)
       UiFlowTest().shot("copy-complete")
-      i.runOnMainSync { activity.homeTask.action.performClick() }
+      i.runOnMainSync { activity.secondStep.performClick() }
       assertEquals(1, activity.tab)
       assertEquals("② 上传云端", activity.secondStep.text.toString())
     } finally {

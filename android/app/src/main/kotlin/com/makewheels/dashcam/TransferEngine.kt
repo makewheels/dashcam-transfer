@@ -122,14 +122,17 @@ internal class TransferEngine(c: Context) {
   }
 
   /** Trust content only after checking that the on-disk copy still matches. */
-  fun hasLocalCopy(sha: String, size: Long): Boolean {
+  fun hasLocalCopy(sha: String, size: Long, tick: (Long, Long) -> Unit = { _, _ -> }): Boolean {
     var retained: Store.Item? = null
-    for (item in store.files("sha=? AND size=?", sha, size.toString())) {
+    val candidates = store.files("sha=? AND size=?", sha, size.toString()).filter { verified(it) && it.dest != null }
+    for ((index, item) in candidates.withIndex()) {
       if (!verified(item) || item.dest == null) continue
       val matches = try {
-        val hash = openDestInput(item.dest!!).use { Digests.hash(it) { } }
-        hash[0] == sha && hash[2].toLong() == size
-      } catch (_: Exception) { false }
+        val hash = openDestInput(item.dest!!).use { input ->
+          Digests.sha256(input) { n -> tick(index * size + n, candidates.size * size) }
+        }
+        hash[0] == sha && hash[1].toLong() == size
+      } catch (e: Exception) { if (e is Paused) throw e else false }
       if (!matches) continue
       if (retained == null) {
         retained = item
@@ -156,17 +159,14 @@ internal class TransferEngine(c: Context) {
     val items = store.files("batch=?", batch)
     if (items.isEmpty()) throw IOException("没有可复制的文件")
     begin("import", items)
-    var needed = 0L
-    for (item in items) if (!verified(item)) needed += maxOf(0L, item.size - validOffset(item))
-    if (free(context) < needed + RESERVE)
-      throw IOException("空间不足，请清理至少 " + bytes(needed + RESERVE - free(context)))
+    var skipped = 0
     var index = 0
     for (item in items) {
       check(false)
       index++
       if (verified(item)) continue
       try {
-        copy(item, index, items.size)
+        if (!copy(item, index, items.size)) skipped++
       } catch (e: Exception) {
         store.state(item.id, "copy_error", readable(e))
         throw e
@@ -176,7 +176,10 @@ internal class TransferEngine(c: Context) {
     val ready = ContentValues()
     ready.put("ready", 1)
     store.writableDatabase.update("batches", ready, "id=?", arrayOf(batch))
-    message = "拷贝校验完成；卡上原视频保留"
+    val remaining = store.files("batch=?", batch)
+    if (remaining.isEmpty()) store.deleteBatch(batch)
+    taskIds = remaining.map { it.id }
+    message = "拷贝校验完成；卡上原视频保留" + if (skipped > 0) "，已跳过 $skipped 个相同视频" else ""
   }
 
   @Throws(Exception::class)
@@ -321,13 +324,36 @@ internal class TransferEngine(c: Context) {
   }
 
   @Throws(Exception::class)
-  fun copy(item: Store.Item, index: Int, count: Int) {
+  fun copy(item: Store.Item, index: Int, count: Int): Boolean {
     val resolver = context.contentResolver
     val source = DocumentFile.fromSingleUri(context, Uri.parse(item.source!!))
     if (source == null || !source.exists()) throw IOException("读卡器未连接或原文件不存在")
     if (source.length() != item.size
         || (item.modified > 0 && source.lastModified() != item.modified))
       throw IOException("原文件已变化，请重新扫描")
+    store.state(item.id, "verifying", "")
+    progress(item.id, "检查重复 $index/$count · " + item.name, 0, item.size)
+    val original = resolver.openInputStream(Uri.parse(item.source!!))!!.use { input ->
+      Digests.sha256(input) { n ->
+        check(false)
+        progress(item.id, "检查重复 $index/$count · " + item.name, n, item.size)
+      }
+    }
+    if (original[1].toLong() != item.size) throw IOException("原文件长度已变化")
+    if (hasLocalCopy(original[0], item.size) { done, total ->
+          check(false)
+          progress(item.id, "核对已有副本 · " + item.name, done, total)
+        }) {
+      item.dest?.let { dest ->
+        if (store.files("id!=? AND dest=?", item.id, dest).isEmpty()) {
+          if (!destIsUri(dest) && File(dest).exists() && !File(dest).delete())
+            throw IOException("重复任务的临时副本清理失败")
+          if (destIsUri(dest)) resolver.delete(Uri.parse(dest), null, null)
+        }
+      }
+      store.delete(item.id)
+      return false
+    }
     if (item.dest != null) {
       try {
         openDestFd(item.dest!!, true).use { }
@@ -337,18 +363,11 @@ internal class TransferEngine(c: Context) {
     }
     if (item.dest == null) {
       // App-private storage: invisible to the gallery, wiped with the app; never a shared MediaStore path.
-      val digest = resolver.openInputStream(Uri.parse(item.source!!))!!.use { input ->
-        Digests.hash(input) { n ->
-          check(false)
-          progress(item.id, "校验 TF 卡 · " + item.name, n, item.size)
-        }
-      }
-      if (digest[2].toLong() != item.size) throw IOException("原文件长度已变化")
       val dir = File(context.getExternalFilesDir(null), "videos")
       if (!dir.isDirectory && !dir.mkdirs()) throw IOException("无法创建手机视频目录")
       val extension = item.name.substringAfterLast('.', "mp4").lowercase(Locale.ROOT)
           .takeIf { it.matches(Regex("[a-z0-9]{1,8}")) } ?: "mp4"
-      val destPath = File(dir, digest[0] + "." + extension).absolutePath
+      val destPath = File(dir, original[0] + "." + extension).absolutePath
       val saved = ContentValues()
       saved.put("dest", destPath)
       saved.put("offset", 0)
@@ -356,6 +375,9 @@ internal class TransferEngine(c: Context) {
       item.offset = 0
       item.dest = destPath
     }
+    val needed = maxOf(0L, item.size - validOffset(item))
+    if (free(context) < needed + RESERVE)
+      throw IOException("空间不足，请清理至少 " + bytes(needed + RESERVE - free(context)))
     store.state(item.id, "copying", "")
     val offset = validOffset(item)
     resolver.openFileDescriptor(Uri.parse(item.source!!), "r")!!.use { src ->
@@ -409,21 +431,14 @@ internal class TransferEngine(c: Context) {
       }
     }
     store.state(item.id, "verifying", "")
-    val original: Array<String>
     val local: Array<String>
-    resolver.openInputStream(Uri.parse(item.source!!))!!.use { input ->
-      original = Digests.hash(input) { n ->
-        check(false)
-        progress(item.id, "校验 TF 卡 · " + item.name, n, item.size)
-      }
-    }
     openDestInput(item.dest!!).use { input ->
       local = Digests.hash(input) { n ->
         check(false)
         progress(item.id, "校验手机副本 · " + item.name, n, item.size)
       }
     }
-    if (original[0] != local[0] || local[2].toLong() != item.size || original[2].toLong() != item.size) {
+    if (original[0] != local[0] || local[2].toLong() != item.size || original[1].toLong() != item.size) {
       val reset = ContentValues()
       reset.put("offset", 0)
       store.update(item.id, reset)
@@ -448,6 +463,7 @@ internal class TransferEngine(c: Context) {
         if (store.files("batch=?", batch).isEmpty()) store.deleteBatch(batch)
       }
     }
+    return true
   }
 
   @Throws(Exception::class)

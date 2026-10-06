@@ -36,6 +36,21 @@ internal object Digests {
     return arrayOf(hex(sha.digest()), java.lang.Long.toUnsignedString(crc xor -1L), done.toString())
   }
 
+  /** SHA-only preflight avoids the per-byte CRC loop while identifying duplicate content. */
+  fun sha256(stream: InputStream, tick: Tick): Array<String> {
+    val digest = MessageDigest.getInstance("SHA-256")
+    var done = 0L
+    val buffer = ByteArray(1024 * 1024)
+    while (true) {
+      val n = stream.read(buffer)
+      if (n == -1) break
+      digest.update(buffer, 0, n)
+      done += n
+      tick.onBytes(done)
+    }
+    return arrayOf(hex(digest.digest()), done.toString())
+  }
+
   fun hex(b: ByteArray): String = buildString {
     for (v in b) append(String.format("%02x", v))
   }
