@@ -11,6 +11,7 @@ import java.io.FileNotFoundException
 
 /** Isolated debug-only document storage for explicit deletion boundary tests. */
 class FixtureDocumentsProvider : DocumentsProvider() {
+  @Throws(FileNotFoundException::class)
   private fun file(id: String): File {
     val root = File(getContext()!!.cacheDir, "transfer-documents")
     root.mkdirs()
@@ -42,72 +43,54 @@ class FixtureDocumentsProvider : DocumentsProvider() {
     }
   }
 
+  override fun isChildDocument(parent: String, child: String): Boolean {
+    return try {
+      parent == "root" && child != "root" && file(child).exists()
+    } catch (_: FileNotFoundException) {
+      false
+    }
+  }
+
   override fun onCreate(): Boolean = true
 
   override fun queryRoots(projection: Array<String>?): Cursor {
+    return MatrixCursor(arrayOf("root_id"))
+  }
+
+  @Throws(FileNotFoundException::class)
+  override fun queryDocument(id: String, projection: Array<String>?): Cursor {
     val cursor = MatrixCursor(projection ?: COLUMNS)
-    addRoot(cursor)
+    add(cursor, id)
     return cursor
   }
 
-  private fun addRoot(cursor: MatrixCursor) {
-    val root = file("root")
-    val row = cursor.newRow()
-    for (column in cursor.columnNames) {
-      when (column) {
-        Document.COLUMN_DOCUMENT_ID -> row.add("root")
-        Document.COLUMN_DISPLAY_NAME -> row.add("行车转存测试存储")
-        Document.COLUMN_MIME_TYPE -> row.add(Document.MIME_TYPE_DIR)
-        Document.COLUMN_FLAGS -> row.add(
-            Document.FLAG_DIR_SUPPORTS_CREATE or Document.FLAG_SUPPORTS_DELETE
-                or Document.FLAG_SUPPORTS_RENAME or Document.FLAG_SUPPORTS_WRITE)
-        Document.COLUMN_SIZE -> row.add(root.totalSpace)
-        Document.COLUMN_LAST_MODIFIED -> row.add(root.lastModified())
-        else -> row.add(null)
-      }
-    }
-  }
-
-  override fun queryDocument(documentId: String, projection: Array<String>?): Cursor {
+  @Throws(FileNotFoundException::class)
+  override fun queryChildDocuments(parent: String, projection: Array<String>?, sort: String?): Cursor {
     val cursor = MatrixCursor(projection ?: COLUMNS)
-    try {
-      add(cursor, documentId)
-    } catch (_: FileNotFoundException) {
-    }
-    return cursor
-  }
-
-  override fun queryChildDocuments(
-      parentDocumentId: String, projection: Array<String>?, sortOrder: String?
-  ): Cursor {
-    val cursor = MatrixCursor(projection ?: COLUMNS)
-    val parent = file(parentDocumentId)
-    val children = parent.listFiles()
+    val children = file(parent).listFiles()
     if (children != null) for (child in children) add(cursor, child.getName()!!)
     return cursor
   }
 
-  override fun openDocument(documentId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor {
-    return ParcelFileDescriptor.open(file(documentId), ParcelFileDescriptor.parseMode(mode))
+  @Throws(FileNotFoundException::class)
+  override fun openDocument(id: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor {
+    return ParcelFileDescriptor.open(file(id), ParcelFileDescriptor.parseMode(mode))
   }
 
-  override fun createDocument(parentDocumentId: String, mimeType: String, displayName: String): String {
-    var name = displayName
-    if (mimeType == Document.MIME_TYPE_DIR && !name.endsWith(".dir")) name += ".dir"
-    val target = File(file(parentDocumentId), name)
-    if (mimeType != Document.MIME_TYPE_DIR) target.createNewFile() else target.mkdirs()
-    return target.getName()!!
+  @Throws(FileNotFoundException::class)
+  override fun createDocument(parent: String, mime: String, name: String): String {
+    if (parent != "root") throw FileNotFoundException()
+    return try {
+      if (!file(name).createNewFile()) throw FileNotFoundException()
+      name
+    } catch (_: java.io.IOException) {
+      throw FileNotFoundException()
+    }
   }
 
-  override fun deleteDocument(documentId: String) {
-    if (!file(documentId).delete()) throw FileNotFoundException("delete failed")
-  }
-
-  override fun renameDocument(documentId: String, displayName: String): String {
-    val source = file(documentId)
-    val target = File(source.getParentFile(), displayName)
-    if (!source.renameTo(target)) throw FileNotFoundException("rename failed")
-    return target.getName()!!
+  @Throws(FileNotFoundException::class)
+  override fun deleteDocument(id: String) {
+    if (id == "root" || !file(id).delete()) throw FileNotFoundException()
   }
 
   companion object {
