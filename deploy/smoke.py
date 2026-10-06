@@ -43,7 +43,7 @@ def main():
                 stamp = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d_%H-%M-%S")
                 date = stamp[:10]
                 import_id = str(uuid.uuid4())
-                object_key = f"videos/{stamp}_{import_id[:8]}/{name}"
+                object_key = f"videos/{sha}_{name}"
                 created.append((sha, object_key, import_id))
                 metadata = {"owner": owner, "name": name, "size": len(data), "date": date,
                             "sha256": sha, "crc64": str(crc.crc ^ 1 if wrong else crc.crc),

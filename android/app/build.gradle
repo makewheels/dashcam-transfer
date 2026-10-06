@@ -9,7 +9,7 @@ android {
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         targetSdk 35
         versionCode Integer.parseInt(System.getenv('DASHCAM_VERSION_CODE') ?: '1')
-        versionName System.getenv('DASHCAM_VERSION_NAME') ?: '0.6.1'
+        versionName System.getenv('DASHCAM_VERSION_NAME') ?: '0.6.2'
         resValue 'string', 'app_name', '行车记录仪转存'
         buildConfigField 'String', 'API_URL', JsonOutput.toJson(System.getenv('DASHCAM_API_URL') ?: '')
         // Scoped application access credential, not an Alibaba Cloud access key.

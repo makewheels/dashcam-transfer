@@ -189,7 +189,7 @@ def create_app(database=None, bucket=None, token=None):
             return jsonify(error="invalid owner"), 400
         doc = {"_id": sha, "sha256": sha, "crc64": crc, "size": size, "name": name,
                "date": date, "import_time": import_time, "import_id": import_id,
-               "object_key": f"videos/{import_time}_{import_id[:8]}/{name}",
+               "object_key": f"videos/{sha}_{name}",
                "created_at": datetime.now(timezone.utc).isoformat() + "-" + uuid.uuid4().hex,
                "state": "waiting", "lease_until": 0}
         try:

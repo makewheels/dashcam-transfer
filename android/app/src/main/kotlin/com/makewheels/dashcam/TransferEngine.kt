@@ -121,6 +121,18 @@ internal class TransferEngine(c: Context) {
     return File(dest).delete()
   }
 
+  /** Trust content only after checking that the on-disk copy still matches. */
+  fun hasLocalCopy(sha: String, size: Long): Boolean {
+    for (item in store.files("sha=? AND size=?", sha, size.toString())) {
+      if (!verified(item) || item.dest == null) continue
+      try {
+        val hash = openDestInput(item.dest!!).use { Digests.hash(it) { } }
+        if (hash[0] == sha && hash[2].toLong() == size) return true
+      } catch (_: Exception) { }
+    }
+    return false
+  }
+
   @Throws(Exception::class)
   fun runImport(batch: String) {
     val items = store.files("batch=?", batch)
@@ -307,10 +319,18 @@ internal class TransferEngine(c: Context) {
     }
     if (item.dest == null) {
       // App-private storage: invisible to the gallery, wiped with the app; never a shared MediaStore path.
-      val dir = File(context.getExternalFilesDir(null),
-          "videos/" + (item.importTime ?: item.date!!) + "_" + item.batch!!.substring(0, 8))
+      val digest = resolver.openInputStream(Uri.parse(item.source!!))!!.use { input ->
+        Digests.hash(input) { n ->
+          check(false)
+          progress(item.id, "校验 TF 卡 · " + item.name, n, item.size)
+        }
+      }
+      if (digest[2].toLong() != item.size) throw IOException("原文件长度已变化")
+      val dir = File(context.getExternalFilesDir(null), "videos")
       if (!dir.isDirectory && !dir.mkdirs()) throw IOException("无法创建手机视频目录")
-      val destPath = File(dir, item.name).absolutePath
+      val extension = item.name.substringAfterLast('.', "mp4").lowercase(Locale.ROOT)
+          .takeIf { it.matches(Regex("[a-z0-9]{1,8}")) } ?: "mp4"
+      val destPath = File(dir, digest[0] + "." + extension).absolutePath
       val saved = ContentValues()
       saved.put("dest", destPath)
       saved.put("offset", 0)
@@ -403,6 +423,13 @@ internal class TransferEngine(c: Context) {
     v.put("state", "ready")
     v.put("error", "")
     store.update(item.id, v)
+    // Repaired content may reuse its canonical path; keep one owner record for that copy.
+    for (duplicate in store.files("id!=? AND dest=? AND sha=?", item.id, item.dest!!, local[0])) {
+      store.delete(duplicate.id)
+      duplicate.batch?.let { batch ->
+        if (store.files("batch=?", batch).isEmpty()) store.deleteBatch(batch)
+      }
+    }
   }
 
   @Throws(Exception::class)

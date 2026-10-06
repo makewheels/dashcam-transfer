@@ -123,7 +123,7 @@ def test_unexpected_part_number_rejected(setup):
         assert c.post(f"/uploads/{data['sha256']}/part", json={"owner": data["owner"], "number": number}, headers=AUTH).status_code == 400
 
 
-def test_import_timestamps_keep_separate_folders_and_resume_stable(setup):
+def test_content_keys_share_one_folder_and_resume_stable(setup):
     import uuid
     c, db, b = setup
     keys = []
@@ -132,8 +132,9 @@ def test_import_timestamps_keep_separate_folders_and_resume_stable(setup):
         data.update(sha256=hashlib.sha256(content).hexdigest(), import_time=clock, import_id=str(uuid.uuid4()))
         assert c.post("/uploads/start", json=data, headers=AUTH).status_code == 200
         key = db.videos.find_one({"_id": data["sha256"]})["object_key"]
-        assert key.startswith(f"videos/{clock}_")
-        assert key.endswith("/video.mp4")
+        assert key.startswith(f"videos/{data['sha256']}_")
+        assert key.endswith("_video.mp4")
+        assert key.count("/") == 1
         keys.append(key)
         data["import_time"] = "2026-10-04_23-59-59"
         data["import_id"] = str(uuid.uuid4())

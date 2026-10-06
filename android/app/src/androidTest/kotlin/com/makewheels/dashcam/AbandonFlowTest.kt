@@ -39,7 +39,7 @@ class AbandonFlowTest {
     val directory = File(engine.context.cacheDir, batch).apply { mkdirs() }
     try {
       engine.store.writableDatabase.insertOrThrow("batches", null, ContentValues().apply { put("id", batch) })
-      for (state in listOf("waiting", "copying", "ready", "copy_error", "uploading", "upload_error", "abandon_error")) {
+      for (state in listOf("waiting", "copying", "verifying", "ready", "copy_error", "uploading", "upload_error", "abandon_error")) {
         val file = File(directory, state).apply { writeText("partial") }
         engine.store.writableDatabase.insertOrThrow("files", null, ContentValues().apply {
           put("id", "$batch-$state"); put("batch", batch); put("state", state)

@@ -9,13 +9,13 @@ import java.net.URL
 internal object Api {
   @JvmStatic
   @Throws(Exception::class)
-  fun call(method: String, path: String, data: JSONObject?): JSONObject {
+  fun call(method: String, path: String, data: JSONObject?, timeoutMs: Int = 60000): JSONObject {
     if (BuildConfig.API_URL.isEmpty() || BuildConfig.APP_TOKEN.isEmpty())
       throw IOException("尚未配置服务端")
     val c = URL(BuildConfig.API_URL + path).openConnection() as HttpURLConnection
     c.requestMethod = method
-    c.connectTimeout = 20000
-    c.readTimeout = 60000
+    c.connectTimeout = minOf(20000, timeoutMs)
+    c.readTimeout = timeoutMs
     c.setRequestProperty("Authorization", "Bearer " + BuildConfig.APP_TOKEN)
     try {
       if (data != null) {

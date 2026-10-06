@@ -45,24 +45,23 @@ class CardInventoryTest {
       waitFor(activity, "1 个视频")
       shot("card-detected")
       i.runOnMainSync {
-        assertTrue(activity.inventoryDialog!!.isShowing)
+        assertTrue(activity.inventoryDialog == null)
         assertTrue(activity.inventorySummary.contains("76.0 KB"))
-        activity.inventoryDialog!!.dismiss()
         activity.inspectCard(true)
       }
       SystemClock.sleep(500)
-      i.runOnMainSync { assertFalse(activity.inventoryDialog!!.isShowing) }
+      i.runOnMainSync { assertTrue(activity.inventoryDialog == null) }
       DocumentsContract.deleteDocument(c.contentResolver, file)
       i.runOnMainSync { activity.inspectCard(true) }
       waitFor(activity, "0 个视频")
       shot("card-empty")
       i.runOnMainSync {
-        assertTrue(activity.inventoryDialog!!.isShowing)
+        assertTrue(activity.inventoryDialog == null)
         activity.cardPresent = false
         activity.clearInventory()
         activity.refresh()
         assertEquals("", activity.inventorySummary)
-        assertFalse(activity.inventoryDialog!!.isShowing)
+        assertTrue(activity.inventoryDialog == null)
       }
     } finally {
       try {

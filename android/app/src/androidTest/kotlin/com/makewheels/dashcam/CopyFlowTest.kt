@@ -48,6 +48,7 @@ class CopyFlowTest {
         .apply()
     val activity = i.startActivitySync(
         Intent(c, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
+    var alias: Uri? = null
     try {
       val inventoryDeadline = SystemClock.elapsedRealtime() + 10000
       while (activity.inventorySignature.isEmpty()
@@ -76,6 +77,21 @@ class CopyFlowTest {
         assertTrue(activity.homeTask.action.text.toString().contains("下一步"))
         assertTrue(activity.liveHint.text.toString().contains("第一步已完成"))
       }
+      alias = DocumentsContract.createDocument(
+          resolver, DocumentsContract.buildDocumentUriUsingTree(tree, "root"), "video/mp4", "alias-" + name)
+      resolver.openOutputStream(alias!!)!!.use { it.write(payload) }
+      // Repeated copy reads hashes but creates neither a new record nor a new copy.
+      i.runOnMainSync { activity.scan() }
+      val repeatDeadline = SystemClock.elapsedRealtime() + 10000
+      while (activity.scanning && SystemClock.elapsedRealtime() < repeatDeadline) SystemClock.sleep(100)
+      assertEquals(1, activity.store.files("name=?", name).size)
+      assertTrue(activity.importNotice.contains("已跳过 2 个"))
+      val copy = java.io.File(files[0].dest!!)
+      assertEquals("videos", copy.parentFile!!.name)
+      assertTrue(TransferEngine(c).hasLocalCopy(files[0].sha!!, files[0].size))
+      copy.writeBytes(ByteArray(payload.size))
+      assertTrue("Corrupt copies must be copied again", !TransferEngine(c).hasLocalCopy(files[0].sha!!, files[0].size))
+      copy.writeBytes(payload)
       UiFlowTest().shot("copy-complete")
       i.runOnMainSync { activity.homeTask.action.performClick() }
       assertEquals(1, activity.tab)
@@ -91,6 +107,7 @@ class CopyFlowTest {
         activity.store.writableDatabase.delete("files", "id=?", arrayOf(file.id))
         activity.store.writableDatabase.delete("batches", "id=?", arrayOf(file.batch))
       }
+      alias?.let { DocumentsContract.deleteDocument(resolver, it) }
       if (DocumentFile.fromSingleUri(c, source!!)!!.exists())
         DocumentsContract.deleteDocument(resolver, source)
       activity.prefs.edit().remove("source_tree").apply()

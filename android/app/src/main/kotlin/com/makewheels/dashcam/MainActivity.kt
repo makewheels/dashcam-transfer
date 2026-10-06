@@ -101,6 +101,8 @@ class MainActivity : Activity() {
     internal set
   internal var inventorySignature = ""
   var inventoryDialog: AlertDialog? = null
+  internal var startupChecking = true
+  internal var importNotice = ""
     internal set
   internal lateinit var hintBar: LinearLayout
   internal lateinit var netBar: LinearLayout
@@ -883,6 +885,7 @@ class MainActivity : Activity() {
   }
 
   internal fun checkStorage(notify: Boolean) {
+    if (startupChecking) return
     storageCheckedAt = SystemClock.elapsedRealtime()
     val before = cardPresent
     cardPresent = false
@@ -904,11 +907,6 @@ class MainActivity : Activity() {
           if (device.getInterface(i).interfaceClass == UsbConstants.USB_CLASS_MASS_STORAGE)
             readerPresent = true
         }
-    if (notify && cardPresent && !before) {
-      toast("检测到读卡器，请选择 TF 卡的视频文件夹")
-    } else if (notify && !cardPresent && before) {
-      toast("读卡器已断开，重新连接后可继续导入")
-    }
     if (!cardPresent) {
       if (before || inventorySummary.isNotEmpty()) clearInventory()
       if (before && TransferEngine.BUSY.get()
@@ -931,18 +929,13 @@ class MainActivity : Activity() {
     if (!resumed || TransferEngine.BUSY.get() || scanning || awaitingStart
         || signature == inventorySignature) return
     inventorySignature = signature
-    inventoryDialog?.dismiss()
-    val dialog = AlertDialog.Builder(this)
-        .setTitle(title).setMessage(detail).setNegativeButton("稍后", null)
-    if (canCopy) dialog.setPositiveButton("拷贝到手机") { _, _ -> scan() }
-    else if (title == "手机空间不足") dialog.setPositiveButton("知道了", null)
-    else dialog.setPositiveButton("选择视频文件夹") { _, _ -> choose() }
-    inventoryDialog = dialog.create()
-    inventoryDialog!!.show()
+    // Card detection is informational and remains on the page.
+    inventorySummary = detail
+    refresh()
   }
 
   internal fun inspectCard(notify: Boolean) {
-    if (!cardPresent || inventoryLoading || TransferEngine.BUSY.get() || scanning || awaitingStart)
+    if (startupChecking || !cardPresent || inventoryLoading || TransferEngine.BUSY.get() || scanning || awaitingStart)
       return
     val tree = prefs.getString("source_tree", "")!!
     if (tree.isEmpty()) {
@@ -1191,6 +1184,7 @@ class MainActivity : Activity() {
           else "第一步已完成：视频已拷贝并校验。下一步上传云端。",
           HINT_GREEN)
     }
+    if (!busy && !scanning && importNotice.isNotEmpty()) hint(importNotice, HINT_GREEN)
     if (tab == 2 && !batchesLoading) renderBatches()
   }
 
@@ -1589,6 +1583,7 @@ class MainActivity : Activity() {
       return
     }
     scanning = true
+    importNotice = ""
     requestedKind = "import"
     refresh()
     executor.execute {
@@ -1613,14 +1608,30 @@ class MainActivity : Activity() {
           throw IOException("读卡器未连接或目录授权失效，请重插或重新选择")
         val files = ArrayList<DocumentFile>()
         var size = 0L
+        var skipped = 0
+        val seen = HashSet<String>()
         for (f in dir.listFiles()) {
           if (f.isFile) {
             if (f.length() <= 0) throw IOException("存在无法读取或空文件：" + f.getName())
+            val digest = contentResolver.openInputStream(f.uri)!!.use { Digests.hash(it) { } }
+            if (digest[2].toLong() != f.length()) throw IOException("读取长度不一致：" + f.name)
+            if (!seen.add(digest[0]) || connectivity.hasLocalCopy(digest[0], f.length())) {
+              skipped++
+              continue
+            }
             files.add(f)
             size += f.length()
           }
         }
-        if (files.isEmpty()) throw IOException("目录内没有文件")
+        if (files.isEmpty()) {
+          if (skipped == 0) throw IOException("目录内没有文件")
+          runOnUiThread {
+            scanning = false
+            importNotice = "已跳过 $skipped 个相同视频，手机已有校验正确的副本，无需重复拷贝。"
+            refresh()
+          }
+          return@execute
+        }
         if (TransferEngine.free(this@MainActivity) < size + TransferEngine.RESERVE)
           throw IOException(
               "空间不足，请清理至少 " + TransferEngine.bytes(size + TransferEngine.RESERVE - TransferEngine.free(this@MainActivity)) + "，保留 5 GB 后再复制")
@@ -1657,6 +1668,7 @@ class MainActivity : Activity() {
         }
         runOnUiThread {
           scanning = false
+          importNotice = if (skipped > 0) "已跳过 $skipped 个相同视频，其余视频已拷贝并校验。" else ""
           selectTab(0)
           start(batch, false)
         }
@@ -1733,15 +1745,23 @@ class MainActivity : Activity() {
     checkUpdates(false)
   }
 
+  internal fun finishStartupCheck() {
+    if (!startupChecking || isFinishing || isDestroyed) return
+    startupChecking = false
+    checkStorage(false)
+  }
+
   internal fun checkUpdates(quiet: Boolean) {
     if (!quiet) toast("正在检查更新")
     executor.execute {
+      var offered = false
       try {
-        val version = Api.call("GET", "/updates/android", null)
+        val version = Api.call("GET", "/updates/android", null, 10000)
         if (version.optInt("version_code") <= BuildConfig.VERSION_CODE) {
           if (!quiet) runOnUiThread { toast("当前已是最新版本") }
           return@execute
         }
+        offered = true
         runOnUiThread {
           if (isFinishing || isDestroyed) return@runOnUiThread
           AlertDialog.Builder(this)
@@ -1749,10 +1769,13 @@ class MainActivity : Activity() {
               .setMessage(version.optString("notes", "改进传输体验"))
               .setNegativeButton("稍后", null)
               .setPositiveButton("下载并安装") { _, _ -> download(version) }
+              .setOnDismissListener { finishStartupCheck() }
               .show()
         }
       } catch (e: Exception) {
         if (!quiet) runOnUiThread { toast(TransferEngine.readable(e)) }
+      } finally {
+        if (!offered) runOnUiThread { finishStartupCheck() }
       }
     }
   }
