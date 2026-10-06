@@ -352,10 +352,11 @@ Android增加开发applicationIdSuffix `.dev`、开发标签，生产app ID不�
 
 - 0.5.1交付：设备测试37385229663全绿；发行37385772597成功；APK SHA-256与manifest一致（curl验证，github/FC网络多次间歇超时）；Release标题正确；飞书message_id `om_x100b63768d7628a8c38f50bb12b08bb`。期间github.com多次443超时，重推后成功。
 
-## 0.6.0 客户端全量迁移 Kotlin（2026-10-06）
+## 0.6.0 客户端全量迁移 Kotlin（2026-10-06，已发行并飞书交付）
 
 用户要求使用主流语言：23个Java文件（4393行）全部迁移Kotlin（Kotlin 2.0.21 + AGP 8.7.3，jvmTarget 17），Java源码删除，Manifest与类名不变（同包）。
 
 - main层13个类、debug的FixtureDocumentsProvider、3个单元测试与6个设备测试全部重写为Kotlin；kotlin目录作为标准sourceSet。迁移中顺手修正：TransferProgress阶段检测补「清理手机副本」→RECYCLE（0.5.0清理文案改版后错位为IDLE/REMOVE_SOURCE）；删除8个死字段（networkState等）。
 - Kotlin/Java语义差异修正：0x8位十六进制字面量需.toInt()、0xC96C5795D7870F42需UL字面量、LayoutParams权重需1f、行首+拼接、TextView.setTextSize(float)、requireContext()为API 30（minSdk 29用getContext()!!）、ContentResolver.openInputStream可空、TaskCard/主界面字段internal供androidTest访问（AGP friend module）。
-- 本地assembleDebug/lintDebug/testDebugUnitTest全过。设备测试与发行验证进行中。版本0.6.0/code 6000。
+- 本地assembleDebug/lintDebug/testDebugUnitTest全过。构建脚本改就地构建加清理（Kotlin 2.0.20+忽略自定义buildDirectory，check_android_device.py同步适配）；测试Provider对齐旧版（补isChildDocument）；Store.Item恢复数据库可空语义。CI设备测试37392445342八项全绿。
+- 源码c50ce07，发行37393048270成功；正式APK 0.6.0/code 6000、同签名、SHA与manifest一致（curl验证）；Release标题「0.6.0 全量迁移 Kotlin」无附件。飞书APK+说明发送成功，message_id `om_x100b6377a6977ca4c36002982a882e1`。真机验收Kotlin版行为与Java版一致（UI截图模拟器已核对）。
