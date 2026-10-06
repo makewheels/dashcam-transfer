@@ -123,14 +123,32 @@ internal class TransferEngine(c: Context) {
 
   /** Trust content only after checking that the on-disk copy still matches. */
   fun hasLocalCopy(sha: String, size: Long): Boolean {
+    var retained: Store.Item? = null
     for (item in store.files("sha=? AND size=?", sha, size.toString())) {
       if (!verified(item) || item.dest == null) continue
-      try {
+      val matches = try {
         val hash = openDestInput(item.dest!!).use { Digests.hash(it) { } }
-        if (hash[0] == sha && hash[2].toLong() == size) return true
-      } catch (_: Exception) { }
+        hash[0] == sha && hash[2].toLong() == size
+      } catch (_: Exception) { false }
+      if (!matches) continue
+      if (retained == null) {
+        retained = item
+        continue
+      }
+      // Old imports may have multiple verified private copies. Retain one, never card sources.
+      val duplicate = item.dest!!
+      if (duplicate != retained.dest) {
+        if (destIsUri(duplicate)) continue
+        val file = File(duplicate)
+        if (!file.delete()) continue
+        file.parentFile?.let { if (it.list()?.isEmpty() == true) it.delete() }
+      }
+      store.delete(item.id)
+      item.batch?.let { batch ->
+        if (store.files("batch=?", batch).isEmpty()) store.deleteBatch(batch)
+      }
     }
-    return false
+    return retained != null
   }
 
   @Throws(Exception::class)
