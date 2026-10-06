@@ -132,15 +132,16 @@ def test_content_keys_share_one_folder_and_resume_stable(setup):
         data.update(sha256=hashlib.sha256(content).hexdigest(), import_time=clock, import_id=str(uuid.uuid4()))
         assert c.post("/uploads/start", json=data, headers=AUTH).status_code == 200
         key = db.videos.find_one({"_id": data["sha256"]})["object_key"]
-        assert key.startswith(f"videos/{data['sha256']}_")
-        assert key.endswith("_video.mp4")
+        assert key.endswith("video.mp4")
         assert key.count("/") == 1
         keys.append(key)
         data["import_time"] = "2026-10-04_23-59-59"
         data["import_id"] = str(uuid.uuid4())
         assert c.post("/uploads/start", json=data, headers=AUTH).status_code == 200
         assert db.videos.find_one({"_id": data["sha256"]})["object_key"] == key
-    assert keys[0] != keys[1]
+    # 对象按原文件名平铺；首个用纯名字，不同内容同名时退回 sha 前缀防覆盖。
+    assert keys[0] == "videos/video.mp4"
+    assert keys[1].startswith("videos/") and keys[1] != keys[0]
 
 
 def test_same_second_imports_are_isolated_and_bad_timestamps_rejected(setup):

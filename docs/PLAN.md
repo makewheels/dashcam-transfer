@@ -416,3 +416,10 @@ Android增加开发applicationIdSuffix `.dev`、开发标签，生产app ID不�
 
 - 源码eb3babe，常规CI 37472369149通过；v0.6.5发行37472531982成功。生产更新接口0.6.5/code6005，正式APK经签名URL完整下载5457698字节、SHA-256 `63caaeae36f0a48a22bd1f2b38d8550b2499150ef74b84484a58b9265aed1143`与manifest一致，包名/版本/签名（与0.6.4同证书ccd584a2…）通过。飞书APK+说明发送成功，message_id `om_x100b637bf2b6cca4c3d91f15b62d193`、`om_x100b637bf35f64a8c00c87ea1fd46d8`。
 - 发现并修复release.yml自v0.4.4起重构时漏导出DASHCAM_RELEASE_NOTES、OSS manifest的notes始终为兜底文案的缺陷（e516e4e）；GitHub Release正文一直正确。0.6.5的manifest未重发（notes仅展示用途），下一版本生效。
+
+## 云端对象改为原文件名平铺（2026-10-07，服务端已部署）
+
+- 用户要求OSS对象用原始文件名，sha256只留在数据库。0.6.5当日平铺格式为`videos/{sha}_{name}`，本轮改为`videos/{name}`；不同内容同名时服务端注册检查已有占用自动退回`videos/{sha}_{name}`防覆盖（接口层本就拒绝含`/`的名字）。
+- server/app.py注册处加同名不同内容检查；迁移脚本目标格式同步改为原文件名（防碰撞逻辑一致）。服务端10项测试通过（同名测试改写为新行为断言）。
+- 存量29个MOV再次服务端copy+size/crc64校验→Mongo改key→主账号CLI删除29个sha前缀旧对象（删前29对大小比对全符）。迁移脚本孤儿检查改为无列举权限时跳过提示，不再中断。
+- dev/prod函数均已部署；dev实测：首注册`videos/rename-test.mp4`、同名不同内容退回sha前缀，测试文档已清。生产healthz与视频列表验证通过。客户端无需发版（object_key不出服务端）。

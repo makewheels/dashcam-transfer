@@ -187,9 +187,13 @@ def create_app(database=None, bucket=None, token=None):
         owner = str(data.get("owner", ""))
         if not re.fullmatch(r"[a-zA-Z0-9-]{16,80}", owner):
             return jsonify(error="invalid owner"), 400
+        # 对象按原文件名平铺存放；不同内容同名时才退回 sha 前缀，避免互相覆盖。
+        object_key = f"videos/{name}"
+        if videos.find_one({"object_key": object_key, "_id": {"$ne": sha}}):
+            object_key = f"videos/{sha}_{name}"
         doc = {"_id": sha, "sha256": sha, "crc64": crc, "size": size, "name": name,
                "date": date, "import_time": import_time, "import_id": import_id,
-               "object_key": f"videos/{sha}_{name}",
+               "object_key": object_key,
                "created_at": datetime.now(timezone.utc).isoformat() + "-" + uuid.uuid4().hex,
                "state": "waiting", "lease_until": 0}
         try:

@@ -1,4 +1,4 @@
-"""将 videos 下旧批次路径对象迁移为平铺 videos/{sha}_{name}，并清理对象已丢失的悬空文档。
+"""将 videos 下旧路径对象迁移为 videos/{原文件名}（不同内容同名时退回 videos/{sha}_{name}），并清理对象已丢失的悬空文档。
 
 用法: python migrate_flat_keys.py <env文件> [--apply]
 默认 dry-run 只打印计划。步骤: HEAD核实 → 服务端copy → size/crc64/meta校验 → Mongo改key → 删旧对象。
@@ -31,7 +31,9 @@ with tempfile.TemporaryDirectory() as td:
     moved = missing = flat = errors = 0
     for d in docs:
         sha, name, old = d["_id"], d["name"], d["object_key"]
-        new = f"videos/{sha}_{name}"
+        new = f"videos/{name}"
+        if videos.find_one({"object_key": new, "_id": {"$ne": sha}}):
+            new = f"videos/{sha}_{name}"
         if old == new:
             flat += 1
             continue
@@ -76,10 +78,14 @@ with tempfile.TemporaryDirectory() as td:
 
     print(f"\n总计: 文档={len(docs)} 已平铺={flat} 待迁移={moved} 悬空={missing} 错误={errors}")
     if APPLY:
-        listed = {o.key for o in oss2.ObjectIterator(bucket, prefix="videos/")}
-        known = {d["object_key"] for d in videos.find({}, {"object_key": 1})}
-        orphans = listed - known
-        print(f"OSS对象={len(listed)} Mongo引用={len(known)} 孤儿对象={len(orphans)}")
-        for k in sorted(orphans):
-            print(f"  孤儿: {k}")
+        try:
+            listed = {o.key for o in oss2.ObjectIterator(bucket, prefix="videos/")}
+            known = {d["object_key"] for d in videos.find({}, {"object_key": 1})}
+            orphans = listed - known
+            print(f"OSS对象={len(listed)} Mongo引用={len(known)} 孤儿对象={len(orphans)}")
+            for k in sorted(orphans):
+                print(f"  孤儿: {k}")
+        except oss2.exceptions.AccessDenied:
+            # 运行时 RAM 用户无列举权限；孤儿检查用主账号 CLI 完成
+            print("运行时凭据无列举权限，跳过孤儿检查（用主账号 CLI 核对）")
     mongo.close()
