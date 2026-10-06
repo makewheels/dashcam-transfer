@@ -360,3 +360,10 @@ Android增加开发applicationIdSuffix `.dev`、开发标签，生产app ID不�
 - Kotlin/Java语义差异修正：0x8位十六进制字面量需.toInt()、0xC96C5795D7870F42需UL字面量、LayoutParams权重需1f、行首+拼接、TextView.setTextSize(float)、requireContext()为API 30（minSdk 29用getContext()!!）、ContentResolver.openInputStream可空、TaskCard/主界面字段internal供androidTest访问（AGP friend module）。
 - 本地assembleDebug/lintDebug/testDebugUnitTest全过。构建脚本改就地构建加清理（Kotlin 2.0.20+忽略自定义buildDirectory，check_android_device.py同步适配）；测试Provider对齐旧版（补isChildDocument）；Store.Item恢复数据库可空语义。CI设备测试37392445342八项全绿。
 - 源码c50ce07，发行37393048270成功；正式APK 0.6.0/code 6000、同签名、SHA与manifest一致（curl验证）；Release标题「0.6.0 全量迁移 Kotlin」无附件。飞书APK+说明发送成功，message_id `om_x100b6377a6977ca4c36002982a882e1`。真机验收Kotlin版行为与Java版一致（UI截图模拟器已核对）。
+
+## 0.6.1 放弃任务清理修复（2026-10-06，验证中）
+
+- 复现依据：放弃查询遗漏 waiting/copying，删除失败仍移除记录；进度保存在本地 SQLite 和运行时状态。
+- 统一待处理状态查询，加入 waiting/copying/abandon_error；手机副本成功删除后才删除记录，失败保留以便重试。旧 MediaStore 副本永久删除，缺失私有文件视为已清理。清理完成归零运行时进度，删除空批次并暂停自动上传。TF 卡原文件保留。
+- assembleDebug、lintDebug、testDebugUnitTest、assembleDebugAndroidTest 通过；隔离模拟器 AbandonFlowTest 实测七种状态的手机文件、记录及旧进度清空，重复执行不恢复旧进度（1项通过）。未验证真实 OTG 设备。
+- 用户确认只删除手机副本、本地任务与进度，不删除云端；云端无需按批次分文件夹亦可。本版不迁移已有云端对象，保持上传和去重兼容。新增失败清理后重试的设备测试，待全套验证和发行。

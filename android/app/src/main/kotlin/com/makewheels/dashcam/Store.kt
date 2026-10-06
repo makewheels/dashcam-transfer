@@ -23,6 +23,14 @@ internal class Store(c: Context) : SQLiteOpenHelper(c, "transfers.db", null, 2) 
     if (a < 2) db.execSQL("ALTER TABLE files ADD COLUMN import_time TEXT")
   }
 
+  fun pending(): ArrayList<Item> = files(PENDING_QUERY)
+
+  companion object {
+    const val PENDING_QUERY = "state IN ('waiting','copying','ready','copy_error','uploading','upload_error','abandon_error')"
+    fun isPending(state: String): Boolean = state in listOf(
+        "waiting", "copying", "ready", "copy_error", "uploading", "upload_error", "abandon_error")
+  }
+
   @Synchronized
   fun update(id: String, v: ContentValues) {
     writableDatabase.update("files", v, "id=?", arrayOf(id))

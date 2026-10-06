@@ -235,30 +235,43 @@ internal class TransferEngine(c: Context) {
   /** Give up the unfinished previous task: remove local copies, drop records; card originals untouched. */
   @Throws(Exception::class)
   fun runAbandon() {
-    val items = store.files("state IN ('ready','copy_error','uploading','upload_error')")
-    if (items.isEmpty()) {
-      message = "没有可放弃的任务"
-      return
-    }
+    val items = store.pending()
     begin("abandon", items)
-    val batches = LinkedHashSet<String>()
-    for (item in items) batches.add(item.batch!!)
+    val batches = items.mapNotNull { it.batch }.toSet()
     var failed = 0
     for (item in items) {
       check(false)
-      if (item.dest != null) {
-        try {
-          if (!removeDest(item)) failed++
-        } catch (_: Exception) {
-          failed++
+      try {
+        val dest = item.dest
+        if (dest != null) {
+          // Abandon permanently removes legacy MediaStore copies too.
+          if (dest.startsWith("content:")) {
+            context.contentResolver.delete(Uri.parse(dest), null, null)
+            context.contentResolver.query(Uri.parse(dest), arrayOf("_id"), null, null, null)?.use {
+              if (it.moveToFirst()) throw IOException("手机副本未删除")
+            }
+          } else {
+            val file = File(dest)
+            if (file.exists() && !file.delete()) throw IOException("手机副本未删除")
+            file.parentFile?.let { if (it.list()?.isEmpty() == true) it.delete() }
+          }
         }
+        store.delete(item.id)
+      } catch (e: Exception) {
+        failed++
+        store.state(item.id, "abandon_error", readable(e))
       }
       progress(item.id, "放弃 · " + item.name, item.size, item.size)
-      store.delete(item.id)
     }
     for (batch in batches) if (store.files("batch=?", batch).isEmpty()) store.deleteBatch(batch)
-    message = if (failed > 0) "任务已放弃；$failed 个手机副本清理失败，可在清理存储时删除"
-    else "已放弃上次任务，可重新插卡拷贝"
+    if (failed > 0) throw IOException("$failed 个手机副本删除失败，请再次点放弃重试")
+    taskIds = Collections.emptyList()
+    activeId = ""
+    done = 0
+    total = 0
+    phase = TransferProgress.Phase.IDLE
+    prefs.edit().putBoolean("upload_paused", true).apply()
+    message = "已放弃上次任务，可重新插卡拷贝"
   }
 
   fun verified(i: Store.Item): Boolean {

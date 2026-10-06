@@ -256,14 +256,14 @@ class MainActivity : Activity() {
   }
 
   internal fun abandonPending() {
-    val pending = store.files("state IN ('ready','copy_error','uploading','upload_error')")
+    val pending = store.pending()
     if (pending.isEmpty()) return
     var bytes = 0L
     for (item in pending) bytes += item.size
     AlertDialog.Builder(this)
         .setTitle("放弃上次任务？")
         .setMessage(
-            "上次拷贝的 " + pending.size + " 个视频（" + TransferEngine.bytes(bytes) + "）的手机副本会被删除（存储在应用私有目录，云端与 TF 卡原视频都不受影响）。放弃后可重新插卡拷贝。")
+            "上次拷贝的 " + pending.size + " 个视频（" + TransferEngine.bytes(bytes) + "）的手机副本会被删除（存储在应用私有目录，TF 卡原视频保留；已上传的云端视频仍保留）。放弃后可重新插卡拷贝。")
         .setNegativeButton("保留", null)
         .setPositiveButton("放弃并重新开始") { _, _ -> explicitAction("abandon") }
         .show()
@@ -1117,7 +1117,7 @@ class MainActivity : Activity() {
     deleteCardButton.alpha = if (!busy && deletable > 0 && cardPresent) 1f else .45f
     val pending = ArrayList<Store.Item>()
     for (f in files) {
-      if (listOf("ready", "copy_error", "uploading", "upload_error").contains(f.state))
+      if (Store.isPending(f.state))
         pending.add(f)
     }
     abandonButton.visibility =
