@@ -32,6 +32,7 @@ import android.telephony.TelephonyManager
 import android.view.Gravity
 import android.view.View
 import android.view.WindowInsets
+import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -826,10 +827,17 @@ class MainActivity : Activity() {
     super.onDestroy()
   }
 
+  internal fun applyKeepScreenOn(busy: Boolean) {
+    if (busy) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+  }
+
   internal val tick = object : Runnable {
     override fun run() {
       if (!resumed) return
       val busy = TransferEngine.BUSY.get()
+      // 任务运行期间保持亮屏（拷贝/上传/删除），结束或暂停后恢复自动息屏
+      applyKeepScreenOn(busy)
       if (inventoryWasBusy && !busy) storageCheckedAt = 0
       inventoryWasBusy = busy
       if (inventoryJob != TransferEngine.generation ||

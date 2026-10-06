@@ -405,3 +405,11 @@ Android增加开发applicationIdSuffix `.dev`、开发标签，生产app ID不�
 - 边界：不再重新检测拷贝后发生的同长度内容更改；来源有可用mtime时仍检查修改时间。不能将元数据检查称为再次完整性校验。新设备测试检查删除不重新打开源字节及UI按计数、无速度。
 
 - 源码c06f1c3，常规CI37464029691及设备37464030547通过（11项常规用例，2项实卡专用用例在CI跳过），删除测试确认未重新打开源字节，UI按文件计数且不显示速度/剩余时间。发行37464831919成功，生产更新接口0.6.4/code6004，正式APK完整下载5457454字节、SHA-256 `6fde8f9da894f6ae6cb0f0a15bc7a1e909e893ae677931f9c65642820dcb4257` 与manifest一致，版本/包名/签名通过。未删除真实TF卡或云端视频。
+
+## 0.6.5 云端批次路径迁移与上传保持亮屏（2026-10-06，已发布）
+
+- 用户重申OSS不要批次并要求上传时不息屏。0.6.2起新对象已平铺videos/{sha}_{name}，但此前注册的103个生产文档仍存旧批次路径key，续传沿旧key落盘（29个行车MOV在videos/2026-10-05_16-26-41_e8d4531d/）；另74个早期测试文档的OSS对象已被清理、记录悬空。dev库为空无需迁移。
+- 新增deploy/migrate_flat_keys.py（默认dry-run，--apply执行）：HEAD核实→同bucket服务端copy→size/crc64/meta sha256校验→条件更新Mongo→删旧对象；HEAD 404的文档核验后删除。运行时RAM用户按设计无OSS删除权限，删除分两步：脚本完成copy与Mongo后，29个旧key由主账号aliyun oss rm逐个精确删除，删除前逐key核对同名平铺副本存在。
+- 结果：生产Mongo 103→29个文档全部平铺；OSS videos/仅剩29个平铺对象、批次目录消失；经生产API列表与签名URL Range GET（206、Content-Range总长一致）验证下载链路正常。
+- 客户端：新增MainActivity.applyKeepScreenOn，任务运行期间（拷贝/上传/删除）保持亮屏，结束或暂停恢复自动息屏；离开App前台时不阻止息屏。新增KeepScreenOnTest设备用例。本地构建/lint/单测通过，隔离模拟器设备14项全过；首跑CardInventoryTest失败为裸模拟器缺sm set-virtual-disk setup，补齐后通过，与改动无关。
+- 版本0.6.5/code 6005。
