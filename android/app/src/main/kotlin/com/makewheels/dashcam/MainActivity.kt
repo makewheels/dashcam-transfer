@@ -1434,7 +1434,7 @@ class MainActivity : Activity() {
       val group = if (f.importTime != null)
         f.importTime!!.replace('_', ' ')
             .replace(Regex(" (\\d{2})-(\\d{2})-(\\d{2})$"), " $1:$2:$3")
-      else f.date
+      else f.date ?: ""
       if (group != date) {
         date = group
         ui.add(list, ui.bold(date, 13, Ui.MUTED), 14)

@@ -56,17 +56,17 @@ internal class Store(c: Context) : SQLiteOpenHelper(c, "transfers.db", null, 2) 
   }
 
   class Item(c: Cursor) {
-    val id: String = s(c, "id")
-    val batch: String = s(c, "batch")
-    val source: String = s(c, "source")
-    val tree: String = s(c, "tree")
-    val name: String = s(c, "name")
+    val id: String = s(c, "id") ?: ""
+    val batch: String? = s(c, "batch")
+    val source: String? = s(c, "source")
+    val tree: String? = s(c, "tree")
+    val name: String = s(c, "name") ?: ""
     var dest: String? = s(c, "dest")
-    var state: String = s(c, "state")
+    var state: String = s(c, "state") ?: ""
     val sha: String? = s(c, "sha")
     val crc: String? = s(c, "crc")
-    val date: String = s(c, "date")
-    val error: String = s(c, "error")
+    val date: String? = s(c, "date")
+    var error: String? = s(c, "error")
     val importTime: String? = s(c, "import_time")
     val size: Long = l(c, "size")
     var offset: Long = l(c, "offset")
@@ -74,7 +74,7 @@ internal class Store(c: Context) : SQLiteOpenHelper(c, "transfers.db", null, 2) 
     val sourceDeleted: Boolean = l(c, "source_deleted") != 0L
 
     companion object {
-      private fun s(c: Cursor, key: String): String =
+      private fun s(c: Cursor, key: String): String? =
           c.getString(c.getColumnIndexOrThrow(key))
 
       private fun l(c: Cursor, key: String): Long =

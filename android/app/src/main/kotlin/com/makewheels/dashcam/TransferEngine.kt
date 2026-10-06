@@ -158,13 +158,13 @@ internal class TransferEngine(c: Context) {
         "source_deleted=0 AND tree=? AND batch IN (SELECT id FROM batches WHERE ready=1)", tree)
     begin("delete-source", candidates)
     val batches = LinkedHashSet<String>()
-    for (item in candidates) batches.add(item.batch)
+    for (item in candidates) batches.add(item.batch!!)
     for (batch in batches) {
       for (item in store.files("batch=? AND source_deleted=0", batch)) {
         check(false)
         if (!directory.exists() || !directory.canRead())
           throw IOException("读卡器已断开，未删除的卡上视频保留")
-        val source = DocumentFile.fromSingleUri(context, Uri.parse(item.source))
+        val source = DocumentFile.fromSingleUri(context, Uri.parse(item.source!!))
         if (source == null || !source.exists()) {
           val v = ContentValues()
           v.put("source_deleted", 1)
@@ -196,7 +196,7 @@ internal class TransferEngine(c: Context) {
         }
         // Re-read the source at the deletion boundary to avoid deleting replaced content.
         val hash: Array<String>
-        context.contentResolver.openInputStream(Uri.parse(item.source))!!.use { input ->
+        context.contentResolver.openInputStream(Uri.parse(item.source!!))!!.use { input ->
           hash = Digests.hash(input) { n ->
             check(false)
             progress(item.id, "删除前核对 · " + item.name, n, item.size)
@@ -242,7 +242,7 @@ internal class TransferEngine(c: Context) {
     }
     begin("abandon", items)
     val batches = LinkedHashSet<String>()
-    for (item in items) batches.add(item.batch)
+    for (item in items) batches.add(item.batch!!)
     var failed = 0
     for (item in items) {
       check(false)
@@ -280,7 +280,7 @@ internal class TransferEngine(c: Context) {
   @Throws(Exception::class)
   fun copy(item: Store.Item, index: Int, count: Int) {
     val resolver = context.contentResolver
-    val source = DocumentFile.fromSingleUri(context, Uri.parse(item.source))
+    val source = DocumentFile.fromSingleUri(context, Uri.parse(item.source!!))
     if (source == null || !source.exists()) throw IOException("读卡器未连接或原文件不存在")
     if (source.length() != item.size
         || (item.modified > 0 && source.lastModified() != item.modified))
@@ -295,7 +295,7 @@ internal class TransferEngine(c: Context) {
     if (item.dest == null) {
       // App-private storage: invisible to the gallery, wiped with the app; never a shared MediaStore path.
       val dir = File(context.getExternalFilesDir(null),
-          "videos/" + (item.importTime ?: item.date) + "_" + item.batch.substring(0, 8))
+          "videos/" + (item.importTime ?: item.date!!) + "_" + item.batch!!.substring(0, 8))
       if (!dir.isDirectory && !dir.mkdirs()) throw IOException("无法创建手机视频目录")
       val destPath = File(dir, item.name).absolutePath
       val saved = ContentValues()
@@ -307,7 +307,7 @@ internal class TransferEngine(c: Context) {
     }
     store.state(item.id, "copying", "")
     val offset = validOffset(item)
-    resolver.openFileDescriptor(Uri.parse(item.source), "r")!!.use { src ->
+    resolver.openFileDescriptor(Uri.parse(item.source!!), "r")!!.use { src ->
       openDestFd(item.dest!!, true).use { dst ->
         FileInputStream(src.fileDescriptor).use { input ->
           FileOutputStream(dst.fileDescriptor).use { out ->
@@ -360,7 +360,7 @@ internal class TransferEngine(c: Context) {
     store.state(item.id, "verifying", "")
     val original: Array<String>
     val local: Array<String>
-    resolver.openInputStream(Uri.parse(item.source))!!.use { input ->
+    resolver.openInputStream(Uri.parse(item.source!!))!!.use { input ->
       original = Digests.hash(input) { n ->
         check(false)
         progress(item.id, "校验 TF 卡 · " + item.name, n, item.size)
