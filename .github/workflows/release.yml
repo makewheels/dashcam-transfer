@@ -47,6 +47,7 @@ jobs:
           notes=$(git tag -l --format='%(contents:body)' "$GITHUB_REF_NAME" | grep -v 'Co-Authored-By' | sed -e '/./,$!d')
           title=${title:-"${GITHUB_REF_NAME#v} 更新"}
           notes=${notes:-改进行车视频转存}
+          export DASHCAM_RELEASE_NOTES="$notes"
           python deploy/build_android.py release "$task_dir/app.apk"
           uv run --project deploy deploy/release.py "$task_dir/app.apk"
           # Release 只保留版本说明；正式安装包仅存私有 OSS（飞书与 App 内更新分发），
