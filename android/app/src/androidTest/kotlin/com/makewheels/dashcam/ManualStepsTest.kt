@@ -73,12 +73,15 @@ class ManualStepsTest {
       assertTrue(DocumentFile.fromSingleUri(c, src!!)!!.exists())
       assertEquals("ready", store.files("id=?", id)[0].state)
       r.openOutputStream(dst, "wt")!!.use { it.write("changed phone copy".toByteArray()) }
+      val sourceReadsBeforeDelete = FixtureDocumentsProvider.readOpens.get()
       engine.runDeleteSources(tree.toString())
       assertTrue(DocumentFile.fromSingleUri(c, src!!)!!.exists())
       assertEquals(0, if (store.files("id=?", id)[0].sourceDeleted) 1 else 0)
       r.openOutputStream(dst, "wt")!!.use { it.write(payload) }
       engine.runDeleteSources(tree.toString())
       assertFalse(DocumentFile.fromSingleUri(c, src!!)!!.exists())
+      assertEquals("Deleting must not reopen source video bytes", sourceReadsBeforeDelete, FixtureDocumentsProvider.readOpens.get())
+      assertEquals("已处理 1 / 1 个视频", TransferEngine.detail())
     } finally {
       if (src != null && DocumentFile.fromSingleUri(c, src!!)!!.exists())
         DocumentsContract.deleteDocument(r, src)

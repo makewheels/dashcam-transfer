@@ -335,7 +335,7 @@ class MainActivity : Activity() {
   internal fun deleteCard() {
     AlertDialog.Builder(this)
         .setTitle("删除卡上已拷贝的视频？")
-        .setMessage("只删除已经整批复制校验、并再次核对手机副本与卡上内容的视频。未完成或内容变化的文件保留，不格式化 TF 卡。")
+        .setMessage("只删除已拷贝校验完成的视频。逐个检查手机副本是否存在、大小是否匹配，以及卡上文件大小和修改时间；异常文件保留，不格式化 TF 卡。")
         .setNegativeButton("保留", null)
         .setPositiveButton("删除") { _, _ -> explicitAction("delete-source") }
         .show()
@@ -1205,6 +1205,7 @@ class MainActivity : Activity() {
     internal val currentLabel: TextView
     internal val speed: TextView
     internal val totalEta: TextView
+    private val etaHeading: TextView
     val action: TextView
     internal val totalBar: ProgressBar
     internal val currentBar: ProgressBar
@@ -1220,7 +1221,8 @@ class MainActivity : Activity() {
       card.addView(totalBar)
       totalLabel = text("", 13, Ui.MUTED)
       ui.add(card, totalLabel, 8)
-      ui.add(card, text("总剩余时间", 12, Ui.MUTED), 14)
+      etaHeading = text("总剩余时间", 12, Ui.MUTED)
+      ui.add(card, etaHeading, 14)
       totalEta = ui.bold("正在测量整批速度…", 23, Ui.BLUE)
       ui.add(card, totalEta, 5)
       speed = text("", 12, Ui.MUTED)
@@ -1315,6 +1317,28 @@ class MainActivity : Activity() {
       }
       val busy = TransferEngine.BUSY.get()
       val completed = "completed" == TransferEngine.outcome
+      etaHeading.visibility = if (deleting) View.GONE else View.VISIBLE
+      totalEta.visibility = if (deleting) View.GONE else View.VISIBLE
+      speed.visibility = if (deleting) View.GONE else View.VISIBLE
+      currentBar.visibility = if (deleting) View.GONE else View.VISIBLE
+      if (deleting) {
+        val processed = TransferEngine.done.coerceIn(0, count.toLong()).toInt()
+        val percentage = if (count > 0) processed * 100 / count else 100
+        title.text = if (busy) "逐个删除卡上视频" else if (completed) "卡上删除已结束" else "卡上删除已暂停"
+        percent.text = "$processed / $count"
+        totalBar.progress = percentage * 10
+        totalLabel.text = "已删除 $complete / $count 个视频" +
+            if (!busy && completed && complete < count) "，保留 ${count - complete} 个" else ""
+        speed.text = ""
+        phaseLabel.text = "逐个删除卡上视频"
+        fileName.text = name
+        currentLabel.text = if (busy) "正在处理第 ${minOf(processed + 1, count)} 个视频"
+            else if (completed) "删除操作已结束" else "已暂停，可继续"
+        action.isEnabled = true
+        action.text = if (busy) "暂停" else if (completed) "安全弹出 TF 卡" else "继续当前操作"
+        action.visibility = View.VISIBLE
+        return
+      }
       val percentage = if (size > 0) Math.min(100.0, finished * 100 / size).toInt() else 0
       title.text = (when {
         deleting -> "卡上删除"

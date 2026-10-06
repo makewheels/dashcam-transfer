@@ -74,6 +74,7 @@ class FixtureDocumentsProvider : DocumentsProvider() {
 
   @Throws(FileNotFoundException::class)
   override fun openDocument(id: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor {
+    if (mode == "r") readOpens.incrementAndGet()
     return ParcelFileDescriptor.open(file(id), ParcelFileDescriptor.parseMode(mode))
   }
 
@@ -94,6 +95,7 @@ class FixtureDocumentsProvider : DocumentsProvider() {
   }
 
   companion object {
+    val readOpens = java.util.concurrent.atomic.AtomicInteger()
     val COLUMNS = arrayOf(
         Document.COLUMN_DOCUMENT_ID,
         Document.COLUMN_DISPLAY_NAME,

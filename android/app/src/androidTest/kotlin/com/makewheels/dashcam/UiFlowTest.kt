@@ -163,6 +163,22 @@ class UiFlowTest {
         assertTrue(activity.homeTask.percent.getGlobalVisibleRect(bounds))
       }
       shot("import-progress")
+      instrument.runOnMainSync {
+        TransferEngine.taskKind = "delete-source"
+        TransferEngine.taskIds = listOf(id, "$id-second")
+        TransferEngine.done = 1
+        TransferEngine.total = 2
+        val deleted = ContentValues().apply { put("source_deleted", 1) }
+        activity.store.update(id, deleted)
+        activity.refresh()
+        assertEquals("1 / 2", activity.homeTask.percent.text.toString())
+        assertEquals("已删除 1 / 2 个视频", activity.homeTask.totalLabel.text.toString())
+        assertEquals(android.view.View.GONE, activity.homeTask.speed.visibility)
+        assertEquals(android.view.View.GONE, activity.homeTask.totalEta.visibility)
+        assertFalse(TransferEngine.detail().contains("/s"))
+      }
+      shot("delete-file-progress")
+
       file.clear()
       file.put("state", "uploading")
       file.put("sha", "test")

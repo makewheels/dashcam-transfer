@@ -37,7 +37,7 @@ internal object TransferProgress {
     if (label.startsWith("复制 ")) return Phase.COPY
     if (label.startsWith("校验 TF")) return Phase.VERIFY_SOURCE
     if (label.startsWith("校验手机")) return Phase.VERIFY_LOCAL
-    if (label.startsWith("删除前")) return Phase.REMOVE_SOURCE
+    if (label.startsWith("删除前") || label.startsWith("删除卡上视频")) return Phase.REMOVE_SOURCE
     if (label.startsWith("清理手机副本")) return Phase.RECYCLE
     if (label.startsWith("上传前")) return Phase.VERIFY_UPLOAD
     if (label.startsWith("上传 ·")) return Phase.UPLOAD
@@ -52,7 +52,7 @@ internal object TransferProgress {
     Phase.COPY -> "复制到手机"
     Phase.VERIFY_SOURCE -> "读取并校验 TF 卡"
     Phase.VERIFY_LOCAL -> "校验手机副本"
-    Phase.REMOVE_SOURCE -> "核对并清理 TF 卡"
+    Phase.REMOVE_SOURCE -> "逐个删除卡上视频"
     Phase.VERIFY_UPLOAD -> "上传前校验"
     Phase.UPLOAD -> "上传视频"
     Phase.VERIFY_CLOUD -> "云端完整性校验"

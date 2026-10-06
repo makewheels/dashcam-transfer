@@ -48,7 +48,7 @@ internal class TransferEngine(c: Context) {
     phase = TransferProgress.Phase.IDLE
     message = when (kind) {
       "import" -> "准备拷贝"
-      "delete-source" -> "准备核对并删除卡上视频"
+      "delete-source" -> "准备删除卡上视频"
       "abandon" -> "准备放弃上次任务"
       "cleanup" -> "准备删除手机副本"
       else -> "准备上传"
@@ -190,63 +190,40 @@ internal class TransferEngine(c: Context) {
     val candidates = store.files(
         "source_deleted=0 AND tree=? AND batch IN (SELECT id FROM batches WHERE ready=1)", tree)
     begin("delete-source", candidates)
-    val batches = LinkedHashSet<String>()
-    for (item in candidates) batches.add(item.batch!!)
-    for (batch in batches) {
-      for (item in store.files("batch=? AND source_deleted=0", batch)) {
-        check(false)
+    for ((index, item) in candidates.withIndex()) {
+      check(false)
+      val label = "删除卡上视频 ${index + 1}/${candidates.size} · ${item.name}"
+      progress(item.id, label, index.toLong(), candidates.size.toLong())
+      try {
         if (!directory.exists() || !directory.canRead())
           throw IOException("读卡器已断开，未删除的卡上视频保留")
         val source = DocumentFile.fromSingleUri(context, Uri.parse(item.source!!))
         if (source == null || !source.exists()) {
-          val v = ContentValues()
-          v.put("source_deleted", 1)
-          store.update(item.id, v)
+          store.update(item.id, ContentValues().apply { put("source_deleted", 1) })
           continue
         }
         if (source.length() != item.size
             || (item.modified > 0 && source.lastModified() != item.modified)) {
-          val v = ContentValues()
-          v.put("error", "原文件已变化，未删除")
-          store.update(item.id, v)
+          store.update(item.id, ContentValues().apply { put("error", "原文件信息已变化，未删除") })
           continue
         }
         if (!verified(item) || item.dest == null) continue
-        try {
-          openDestInput(item.dest!!).use { local ->
-            val localHash = Digests.hash(local) { n ->
-              check(false)
-              progress(item.id, "删除前核对手机副本 · " + item.name, n, item.size)
-            }
-            if (localHash[0] != item.sha) throw IOException("手机副本校验不符，卡上原文件保留")
-          }
-        } catch (error: Exception) {
-          if (error is Paused) throw error
-          val retained = ContentValues()
-          retained.put("error", "手机副本无法完整核对，卡上原文件保留")
-          store.update(item.id, retained)
+        // Copy completion already verified SHA-256. Deletion checks metadata without rereading video bytes.
+        val localSize = try { openDestFd(item.dest!!, false).use { it.statSize } }
+            catch (_: Exception) { -1L }
+        if (localSize != item.size) {
+          store.update(item.id, ContentValues().apply { put("error", "手机副本缺失或大小不符，卡上原文件保留") })
           continue
         }
-        // Re-read the source at the deletion boundary to avoid deleting replaced content.
-        val hash: Array<String>
-        context.contentResolver.openInputStream(Uri.parse(item.source!!))!!.use { input ->
-          hash = Digests.hash(input) { n ->
-            check(false)
-            progress(item.id, "删除前核对 · " + item.name, n, item.size)
-          }
-        }
-        if (hash[0] != item.sha) {
-          val v = ContentValues()
-          v.put("error", "原文件内容已变化，未删除")
-          store.update(item.id, v)
-          continue
-        }
+        check(false)
         val v = ContentValues()
         if (source.delete()) {
           v.put("source_deleted", 1)
           v.put("error", "")
         } else v.put("error", "复制已完成，TF 卡删除失败，可重试")
         store.update(item.id, v)
+      } finally {
+        progress(item.id, label, (index + 1).toLong(), candidates.size.toLong())
       }
     }
     val retained = store.files(
@@ -648,6 +625,7 @@ internal class TransferEngine(c: Context) {
 
     @JvmStatic
     fun detail(): String {
+      if (taskKind == "delete-source") return "已处理 $done / $total 个视频"
       val elapsed = SystemClock.elapsedRealtime() - started
       val speed = if (elapsed > 1000) (done - phaseBase) * 1000.0 / elapsed else 0.0
       val remain = if (speed > 0) ((total - done) / speed).toLong() else -1
